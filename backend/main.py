@@ -161,3 +161,6 @@ def execute_intent(intent: Intent):
 
     except Exception as e:
         return {"error": str(e)}
+class Identity(BaseModel):
+    user_id: str
+    name: str
