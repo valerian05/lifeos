@@ -9,6 +9,9 @@ export default function HealthCheck() {
   const [root, setRoot] = useState({});
   const [health, setHealth] = useState({});
 
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+
+  // Fetch all data from backend
   const fetchData = async () => {
     try {
       const [rootRes, healthRes, usersRes, tasksRes, projectsRes] =
@@ -34,9 +37,27 @@ export default function HealthCheck() {
     fetchData();
   }, []);
 
+  // Toggle task done/pending
+  const toggleTask = (id) => {
+    setTasks(tasks.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  };
+
+  // Add new task locally
+  const addTask = () => {
+    if (!newTaskTitle.trim()) return;
+    const newTask = {
+      id: tasks.length + 1,
+      title: newTaskTitle,
+      done: false
+    };
+    setTasks([...tasks, newTask]);
+    setNewTaskTitle("");
+  };
+
   return (
     <div style={{ padding: "20px", fontFamily: "sans-serif" }}>
       <h2>LifeOS Dashboard</h2>
+
       <h3>Root Status:</h3>
       <pre>{JSON.stringify(root, null, 2)}</pre>
 
@@ -62,12 +83,21 @@ export default function HealthCheck() {
       </table>
 
       <h3>Tasks:</h3>
-      <table border="1" cellPadding="5">
+      <input
+        type="text"
+        placeholder="New task title"
+        value={newTaskTitle}
+        onChange={(e) => setNewTaskTitle(e.target.value)}
+      />
+      <button onClick={addTask}>Add Task</button>
+
+      <table border="1" cellPadding="5" style={{ marginTop: "10px" }}>
         <thead>
           <tr>
             <th>ID</th>
             <th>Title</th>
-            <th>Done</th>
+            <th>Status</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -75,7 +105,10 @@ export default function HealthCheck() {
             <tr key={t.id}>
               <td>{t.id}</td>
               <td>{t.title}</td>
-              <td>{t.done ? "✅" : "❌"}</td>
+              <td>{t.done ? "Done ✅" : "Pending ❌"}</td>
+              <td>
+                <button onClick={() => toggleTask(t.id)}>Toggle</button>
+              </td>
             </tr>
           ))}
         </tbody>
