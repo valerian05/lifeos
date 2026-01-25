@@ -1,3 +1,4 @@
+// frontend/pages/CommandExecutor.js
 import { useState, useEffect } from "react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -14,15 +15,23 @@ export default function CommandExecutor() {
   // Fetch tasks & projects
   // ---------------------------
   const fetchTasks = async () => {
-    const res = await fetch(`${API_BASE_URL}/tasks`);
-    const data = await res.json();
-    setTasks(data);
+    try {
+      const res = await fetch(`${API_BASE_URL}/tasks`);
+      const data = await res.json();
+      setTasks(data);
+    } catch (err) {
+      console.error("Error fetching tasks:", err);
+    }
   };
 
   const fetchProjects = async () => {
-    const res = await fetch(`${API_BASE_URL}/projects`);
-    const data = await res.json();
-    setProjects(data);
+    try {
+      const res = await fetch(`${API_BASE_URL}/projects`);
+      const data = await res.json();
+      setProjects(data);
+    } catch (err) {
+      console.error("Error fetching projects:", err);
+    }
   };
 
   useEffect(() => {
@@ -31,9 +40,10 @@ export default function CommandExecutor() {
   }, []);
 
   // ---------------------------
-  // Command Executor
+  // AI Command Executor
   // ---------------------------
   const sendCommand = async () => {
+    if (!commandText.trim()) return;
     setCommandResponse("Processing...");
     try {
       const res = await fetch(`${API_BASE_URL}/execute`, {
@@ -42,13 +52,18 @@ export default function CommandExecutor() {
         body: JSON.stringify({ command: commandText }),
       });
       const data = await res.json();
-      setCommandResponse(`${data.plan}\n\n${data.result}`);
+
+      if (data.error) {
+        setCommandResponse(`Error: ${data.error}`);
+      } else {
+        setCommandResponse(`${data.plan}\n\n${data.result}`);
+        fetchTasks();
+        fetchProjects();
+      }
       setCommandText("");
-      fetchTasks();
-      fetchProjects();
     } catch (err) {
-      setCommandResponse("Backend not reachable");
       console.error(err);
+      setCommandResponse("Backend not reachable");
     }
   };
 
@@ -56,18 +71,18 @@ export default function CommandExecutor() {
   // Task Functions
   // ---------------------------
   const addTask = async () => {
-    if (!newTaskTitle) return;
+    if (!newTaskTitle.trim()) return;
     try {
       const res = await fetch(`${API_BASE_URL}/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTaskTitle, done: false }),
+        body: JSON.stringify({ id: tasks.length + 1, title: newTaskTitle, done: false }),
       });
       await res.json();
       setNewTaskTitle("");
       fetchTasks();
     } catch (err) {
-      console.error(err);
+      console.error("Error adding task:", err);
     }
   };
 
@@ -77,7 +92,7 @@ export default function CommandExecutor() {
       await res.json();
       fetchTasks();
     } catch (err) {
-      console.error(err);
+      console.error("Error toggling task:", err);
     }
   };
 
@@ -85,18 +100,18 @@ export default function CommandExecutor() {
   // Project Functions
   // ---------------------------
   const addProject = async () => {
-    if (!newProjectName) return;
+    if (!newProjectName.trim()) return;
     try {
       const res = await fetch(`${API_BASE_URL}/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newProjectName, status: "Planning" }),
+        body: JSON.stringify({ id: projects.length + 1, name: newProjectName, status: "Planning" }),
       });
       await res.json();
       setNewProjectName("");
       fetchProjects();
     } catch (err) {
-      console.error(err);
+      console.error("Error adding project:", err);
     }
   };
 
@@ -106,7 +121,7 @@ export default function CommandExecutor() {
       await res.json();
       fetchProjects();
     } catch (err) {
-      console.error(err);
+      console.error("Error toggling project status:", err);
     }
   };
 
@@ -115,17 +130,21 @@ export default function CommandExecutor() {
   // ---------------------------
   return (
     <div style={{ padding: 20 }}>
-      <h2>Command Executor</h2>
+      <h2>LifeOS Command Executor</h2>
+
+      {/* Command Input */}
       <input
         style={{ width: "100%", padding: 10 }}
         placeholder="Tell LifeOS what to do"
         value={commandText}
         onChange={(e) => setCommandText(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && sendCommand()}
       />
       <button style={{ marginTop: 10, padding: 10 }} onClick={sendCommand}>
-        Send
+        Send Command
       </button>
-      <pre style={{ marginTop: 20 }}>{commandResponse}</pre>
+
+      <pre style={{ marginTop: 20, whiteSpace: "pre-wrap" }}>{commandResponse}</pre>
 
       {/* Tasks */}
       <h3>Tasks</h3>
@@ -138,7 +157,7 @@ export default function CommandExecutor() {
       <ul>
         {tasks.map((t) => (
           <li key={t.id}>
-            {t.title} - {t.done ? "✅" : "❌"}
+            {t.title} - {t.done ? "✅" : "❌"}{" "}
             <button onClick={() => toggleTask(t.id)}>Toggle</button>
           </li>
         ))}
@@ -155,7 +174,7 @@ export default function CommandExecutor() {
       <ul>
         {projects.map((p) => (
           <li key={p.id}>
-            {p.name} - {p.status}
+            {p.name} - {p.status}{" "}
             <button onClick={() => toggleProjectStatus(p.id)}>Toggle Status</button>
           </li>
         ))}
