@@ -1,4 +1,3 @@
-// frontend/pages/CommandExecutor.js
 import { useState, useEffect } from "react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -14,9 +13,21 @@ export default function CommandExecutor() {
   // ---------------------------
   // Fetch tasks & projects
   // ---------------------------
+  const fetchTasks = async () => {
+    const res = await fetch(`${API_BASE_URL}/tasks`);
+    const data = await res.json();
+    setTasks(data);
+  };
+
+  const fetchProjects = async () => {
+    const res = await fetch(`${API_BASE_URL}/projects`);
+    const data = await res.json();
+    setProjects(data);
+  };
+
   useEffect(() => {
-    fetch(`${API_BASE_URL}/tasks`).then(r => r.json()).then(setTasks);
-    fetch(`${API_BASE_URL}/projects`).then(r => r.json()).then(setProjects);
+    fetchTasks();
+    fetchProjects();
   }, []);
 
   // ---------------------------
@@ -31,8 +42,10 @@ export default function CommandExecutor() {
         body: JSON.stringify({ command: commandText }),
       });
       const data = await res.json();
-      setCommandResponse(data.message);
+      setCommandResponse(`${data.plan}\n\n${data.result}`);
       setCommandText("");
+      fetchTasks();
+      fetchProjects();
     } catch (err) {
       setCommandResponse("Backend not reachable");
       console.error(err);
@@ -44,20 +57,28 @@ export default function CommandExecutor() {
   // ---------------------------
   const addTask = async () => {
     if (!newTaskTitle) return;
-    const res = await fetch(`${API_BASE_URL}/tasks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: tasks.length + 1, title: newTaskTitle, done: false }),
-    });
-    const data = await res.json();
-    setTasks([...tasks, data]);
-    setNewTaskTitle("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTaskTitle, done: false }),
+      });
+      await res.json();
+      setNewTaskTitle("");
+      fetchTasks();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const toggleTask = async (id) => {
-    const res = await fetch(`${API_BASE_URL}/tasks/${id}`, { method: "PATCH" });
-    const data = await res.json();
-    setTasks(tasks.map(t => t.id === id ? data : t));
+    try {
+      const res = await fetch(`${API_BASE_URL}/tasks/${id}`, { method: "PATCH" });
+      await res.json();
+      fetchTasks();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // ---------------------------
@@ -65,20 +86,28 @@ export default function CommandExecutor() {
   // ---------------------------
   const addProject = async () => {
     if (!newProjectName) return;
-    const res = await fetch(`${API_BASE_URL}/projects`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: projects.length + 1, name: newProjectName, status: "Planning" }),
-    });
-    const data = await res.json();
-    setProjects([...projects, data]);
-    setNewProjectName("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newProjectName, status: "Planning" }),
+      });
+      await res.json();
+      setNewProjectName("");
+      fetchProjects();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const toggleProjectStatus = async (id) => {
-    const res = await fetch(`${API_BASE_URL}/projects/${id}`, { method: "PATCH" });
-    const data = await res.json();
-    setProjects(projects.map(p => p.id === id ? data : p));
+    try {
+      const res = await fetch(`${API_BASE_URL}/projects/${id}`, { method: "PATCH" });
+      await res.json();
+      fetchProjects();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // ---------------------------
@@ -103,11 +132,11 @@ export default function CommandExecutor() {
       <input
         placeholder="New task"
         value={newTaskTitle}
-        onChange={e => setNewTaskTitle(e.target.value)}
+        onChange={(e) => setNewTaskTitle(e.target.value)}
       />
       <button onClick={addTask}>Add Task</button>
       <ul>
-        {tasks.map(t => (
+        {tasks.map((t) => (
           <li key={t.id}>
             {t.title} - {t.done ? "✅" : "❌"}
             <button onClick={() => toggleTask(t.id)}>Toggle</button>
@@ -120,11 +149,11 @@ export default function CommandExecutor() {
       <input
         placeholder="New project"
         value={newProjectName}
-        onChange={e => setNewProjectName(e.target.value)}
+        onChange={(e) => setNewProjectName(e.target.value)}
       />
       <button onClick={addProject}>Add Project</button>
       <ul>
-        {projects.map(p => (
+        {projects.map((p) => (
           <li key={p.id}>
             {p.name} - {p.status}
             <button onClick={() => toggleProjectStatus(p.id)}>Toggle Status</button>
