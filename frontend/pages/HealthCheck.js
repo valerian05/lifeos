@@ -17,32 +17,47 @@ export default function HealthCheck() {
     fetch(`${API_BASE_URL}/projects`).then(res => res.json()).then(setProjects).catch(console.error);
   }, []);
 
-  return (
-    <div style={{ padding: "2rem", fontFamily: "Arial, sans-serif" }}>
-      <h1>LifeOS Dashboard</h1>
+  const badge = (text, color) => (
+    <span
+      style={{
+        backgroundColor: color,
+        color: "#fff",
+        padding: "2px 8px",
+        borderRadius: "12px",
+        fontSize: "0.9rem",
+        fontWeight: "bold",
+      }}
+    >
+      {text}
+    </span>
+  );
 
-      <section>
+  return (
+    <div style={{ padding: "2rem", fontFamily: "Arial, sans-serif", maxWidth: "900px", margin: "auto" }}>
+      <h1 style={{ textAlign: "center" }}>LifeOS Dashboard</h1>
+
+      <section style={{ marginBottom: "2rem" }}>
         <h2>Root Status:</h2>
         <p>{root ? root.status : "Loading..."}</p>
       </section>
 
-      <section>
+      <section style={{ marginBottom: "2rem" }}>
         <h2>Health Check:</h2>
-        <p>{health ? (health.ok ? "✅ Healthy" : "⚠️ Problem") : "Loading..."}</p>
+        <p>{health ? (health.ok ? badge("Healthy ✅", "green") : badge("Problem ⚠️", "red")) : "Loading..."}</p>
       </section>
 
-      <section>
+      <section style={{ marginBottom: "2rem" }}>
         <h2>Users:</h2>
-        <table border="1" cellPadding="8" style={{ borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr>
+            <tr style={{ backgroundColor: "#333", color: "#fff" }}>
               <th>ID</th>
               <th>Name</th>
             </tr>
           </thead>
           <tbody>
             {users.map(u => (
-              <tr key={u.id}>
+              <tr key={u.id} style={{ backgroundColor: "#f4f4f4" }}>
                 <td>{u.id}</td>
                 <td>{u.name}</td>
               </tr>
@@ -51,33 +66,33 @@ export default function HealthCheck() {
         </table>
       </section>
 
-      <section>
+      <section style={{ marginBottom: "2rem" }}>
         <h2>Tasks:</h2>
-        <table border="1" cellPadding="8" style={{ borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr>
+            <tr style={{ backgroundColor: "#333", color: "#fff" }}>
               <th>ID</th>
               <th>Title</th>
-              <th>Done</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {tasks.map(t => (
-              <tr key={t.id}>
+              <tr key={t.id} style={{ backgroundColor: "#f9f9f9" }}>
                 <td>{t.id}</td>
                 <td>{t.title}</td>
-                <td>{t.done ? "✅" : "❌"}</td>
+                <td>{t.done ? badge("Done ✅", "green") : badge("Pending ❌", "orange")}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </section>
 
-      <section>
+      <section style={{ marginBottom: "2rem" }}>
         <h2>Projects:</h2>
-        <table border="1" cellPadding="8" style={{ borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr>
+            <tr style={{ backgroundColor: "#333", color: "#fff" }}>
               <th>ID</th>
               <th>Name</th>
               <th>Status</th>
@@ -85,10 +100,14 @@ export default function HealthCheck() {
           </thead>
           <tbody>
             {projects.map(p => (
-              <tr key={p.id}>
+              <tr key={p.id} style={{ backgroundColor: "#f4f4f4" }}>
                 <td>{p.id}</td>
                 <td>{p.name}</td>
-                <td>{p.status}</td>
+                <td>
+                  {p.status === "active" && badge("Active", "green")}
+                  {p.status === "planning" && badge("Planning", "blue")}
+                  {p.status === "completed" && badge("Completed", "gray")}
+                </td>
               </tr>
             ))}
           </tbody>
