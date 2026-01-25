@@ -1,4 +1,3 @@
-# main.py
 import os
 from typing import List
 from fastapi import FastAPI
@@ -14,8 +13,7 @@ from sqlalchemy.orm import sessionmaker, Session
 # -----------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    raise Exception("OPENAI_API_KEY not set!")
-
+    OPENAI_API_KEY = ""
 openai.api_key = OPENAI_API_KEY
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/lifeos.db")
@@ -26,18 +24,14 @@ Base = declarative_base()
 CORE_PROMPT = os.getenv(
     "CORE_PROMPT",
     """You are LifeOS, an AI operating system.
-
 You MUST respond in this format:
-
 PLAN:
 - short reasoning
-
 ACTION:
 - ADD TASK: <title>
 - COMPLETE TASK: <title>
 - ADD PROJECT: <name>
 - NO ACTION
-
 Never explain outside this format."""
 )
 
@@ -58,17 +52,16 @@ Base.metadata.create_all(bind=engine)
 # FastAPI App
 # -----------------------------
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://lifeos-vert.vercel.app"],  # frontend URL
+    allow_origins=["*"],  # Allow all for now to avoid frontend CORS issues
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -----------------------------
-# Pydantic Models
+# Models
 # -----------------------------
 class Task(BaseModel):
     id: int
@@ -84,7 +77,7 @@ class Intent(BaseModel):
     command: str
 
 # -----------------------------
-# In-Memory Data
+# In-Memory State
 # -----------------------------
 tasks = [{"id": 1, "title": "Finish project", "done": True}]
 projects = [{"id": 1, "name": "LifeOS", "status": "Active"}]
@@ -110,8 +103,10 @@ def get_projects():
 
 @app.post("/tasks")
 def add_task(task: Task):
-    tasks.append(task.dict())
-    return task
+    task_dict = task.dict()
+    task_dict["id"] = len(tasks) + 1
+    tasks.append(task_dict)
+    return task_dict
 
 @app.patch("/tasks/{task_id}")
 def toggle_task(task_id: int):
@@ -123,8 +118,10 @@ def toggle_task(task_id: int):
 
 @app.post("/projects")
 def add_project(project: Project):
-    projects.append(project.dict())
-    return project
+    project_dict = project.dict()
+    project_dict["id"] = len(projects) + 1
+    projects.append(project_dict)
+    return project_dict
 
 @app.patch("/projects/{project_id}")
 def toggle_project(project_id: int):
@@ -164,6 +161,8 @@ def apply_ai_action(ai_text: str):
 def execute_intent(intent: Intent):
     db: Session = SessionLocal()
     try:
+        if not OPENAI_API_KEY:
+            return {"error": "OPENAI_API_KEY not set"}
         messages = [
             {"role": "system", "content": CORE_PROMPT},
             {"role": "user", "content": intent.command}
@@ -180,7 +179,6 @@ def execute_intent(intent: Intent):
         db.commit()
 
         return {"plan": ai_plan, "result": action_result}
-
     except Exception as e:
         return {"error": str(e)}
     finally:
