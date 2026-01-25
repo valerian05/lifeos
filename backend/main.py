@@ -5,34 +5,47 @@ from typing import List
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import openai
 
+import openai
 from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-# -------------------------------
-# Environment Variables & OpenAI
-# -------------------------------
+# ------------------------------
+# Environment & OpenAI
+# ------------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise Exception("OPENAI_API_KEY not set in environment!")
 openai.api_key = OPENAI_API_KEY
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./lifeos.db")
-
-# Use PostgreSQL if DATABASE_URL is set, else fallback to SQLite
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-else:
-    engine = create_engine(DATABASE_URL)
-
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
-# -------------------------------
-# Persistent Memory Table
-# -------------------------------
+# Core Prompt from ENV
+CORE_PROMPT = os.getenv(
+    "CORE_PROMPT",
+    """You are LifeOS, an AI operating system.
+
+You MUST respond in this format:
+
+PLAN:
+- short reasoning
+
+ACTION:
+- ADD TASK: <title>
+- COMPLETE TASK: <title>
+- ADD PROJECT: <name>
+- NO ACTION
+
+Never explain outside this format."""
+)
+
+# ------------------------------
+# Database Table
+# ------------------------------
 class Memory(Base):
     __tablename__ = "memory"
     id = Column(Integer, primary_key=True)
@@ -43,30 +56,22 @@ class Memory(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# -------------------------------
-# Load Core Prompt
-# -------------------------------
-if not os.path.exists("core_prompt.txt"):
-    raise Exception("core_prompt.txt not found! Make sure it is in project root.")
-with open("core_prompt.txt") as f:
-    CORE_PROMPT = f.read()
-
-# -------------------------------
+# ------------------------------
 # FastAPI App
-# -------------------------------
+# ------------------------------
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://lifeos-vert.vercel.app"],  # Your frontend URL
+    allow_origins=["https://lifeos-vert.vercel.app"],  # your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# -------------------------------
+# ------------------------------
 # Pydantic Models
-# -------------------------------
+# ------------------------------
 class Task(BaseModel):
     id: int
     title: str
@@ -84,16 +89,16 @@ class Project(BaseModel):
 class Intent(BaseModel):
     command: str
 
-# -------------------------------
-# Temporary Identities
-# -------------------------------
+# ------------------------------
+# Temporary Identity
+# ------------------------------
 identities = {
     "demo-user": {"user_id": "demo-user", "name": "LifeOS Owner"}
 }
 
-# -------------------------------
-# In-memory state
-# -------------------------------
+# ------------------------------
+# In-Memory State
+# ------------------------------
 tasks = [
     {"id": 1, "title": "Finish project", "done": True},
     {"id": 2, "title": "Review PR", "done": True},
@@ -110,9 +115,9 @@ users = [
     {"id": 3, "name": "Charlie"},
 ]
 
-# -------------------------------
+# ------------------------------
 # Basic Routes
-# -------------------------------
+# ------------------------------
 @app.get("/")
 def root():
     return {"status": "LifeOS backend running"}
@@ -133,9 +138,9 @@ def get_tasks():
 def get_projects():
     return projects
 
-# -------------------------------
+# ------------------------------
 # CRUD Routes
-# -------------------------------
+# ------------------------------
 @app.post("/tasks")
 def add_task(task: Task):
     tasks.append(task.dict())
@@ -163,43 +168,51 @@ def toggle_project(project_id: int):
             return p
     return {"error": "Project not found"}, 404
 
-# -------------------------------
-# AI Action Executor
-# -------------------------------
+# ------------------------------
+# AI Action Executor (Safe)
+# ------------------------------
 def apply_ai_action(ai_text: str):
-    if "ADD TASK:" in ai_text:
-        title = ai_text.split("ADD TASK:")[-1].strip()
-        task = {"id": len(tasks) + 1, "title": title, "done": False}
-        tasks.append(task)
-        return f"✅ Task added: {title}"
+    result = []
+    for line in ai_text.splitlines():
+        line = line.strip()
+        if line.startswith("ADD TASK:"):
+            title = line.replace("ADD TASK:", "").strip()
+            task = {"id": len(tasks)+1, "title": title, "done": False}
+            tasks.append(task)
+            result.append(f"✅ Task added: {title}")
 
-    if "COMPLETE TASK:" in ai_text:
-        title = ai_text.split("COMPLETE TASK:")[-1].strip()
-        for t in tasks:
-            if t["title"].lower() == title.lower():
-                t["done"] = True
-                return f"✅ Task completed: {title}"
+        elif line.startswith("COMPLETE TASK:"):
+            title = line.replace("COMPLETE TASK:", "").strip()
+            for t in tasks:
+                if t["title"].lower() == title.lower():
+                    t["done"] = True
+                    result.append(f"✅ Task completed: {title}")
+                    break
 
-    if "ADD PROJECT:" in ai_text:
-        name = ai_text.split("ADD PROJECT:")[-1].strip()
-        project = {"id": len(projects) + 1, "name": name, "status": "Planning"}
-        projects.append(project)
-        return f"✅ Project added: {name}"
+        elif line.startswith("ADD PROJECT:"):
+            name = line.replace("ADD PROJECT:", "").strip()
+            project = {"id": len(projects)+1, "name": name, "status": "Planning"}
+            projects.append(project)
+            result.append(f"✅ Project added: {name}")
 
-    return "ℹ️ No action executed"
+    if not result:
+        return "ℹ️ No action executed"
 
-# -------------------------------
-# AI Command Endpoint
-# -------------------------------
+    return "\n".join(result)
+
+# ------------------------------
+# AI Command Executor Endpoint
+# ------------------------------
 @app.post("/execute")
 def execute_intent(intent: Intent):
     user_id = "demo-user"
     command = intent.command
     db: Session = SessionLocal()
+
     try:
         messages = [
             {"role": "system", "content": CORE_PROMPT},
-            {"role": "user", "content": command},
+            {"role": "user", "content": command}
         ]
 
         response = openai.ChatCompletion.create(
@@ -211,27 +224,19 @@ def execute_intent(intent: Intent):
         ai_plan = response.choices[0].message.content
         action_result = apply_ai_action(ai_plan)
 
-        # Save memory
-        memory_entry = Memory(
+        # Save to DB
+        db.add(Memory(
             user_id=user_id,
             command=command,
             ai_plan=ai_plan,
             action_result=action_result
-        )
-        db.add(memory_entry)
+        ))
         db.commit()
 
-        return {"user": identities[user_id]["name"], "plan": ai_plan, "result": action_result}
+        return {"plan": ai_plan, "result": action_result}
 
     except Exception as e:
         return {"error": str(e)}
+
     finally:
         db.close()
-
-# -------------------------------
-# Run Uvicorn
-# -------------------------------
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
