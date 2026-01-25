@@ -8,6 +8,7 @@ export default function CommandExecutor() {
   const [commandResponse, setCommandResponse] = useState("");
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [aiPlan, setAiPlan] = useState([]); // Stores AI planned actions
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
 
@@ -45,6 +46,7 @@ export default function CommandExecutor() {
   const sendCommand = async () => {
     if (!commandText.trim()) return;
     setCommandResponse("Processing...");
+    setAiPlan([]);
     try {
       const res = await fetch(`${API_BASE_URL}/execute`, {
         method: "POST",
@@ -56,11 +58,11 @@ export default function CommandExecutor() {
       if (data.error) {
         setCommandResponse(`Error: ${data.error}`);
       } else {
-        setCommandResponse(`${data.plan}\n\n${data.result}`);
-        fetchTasks();
-        fetchProjects();
+        // Split AI response into actionable lines
+        const actions = data.plan.split("\n").filter(line => line.trim() !== "");
+        setAiPlan(actions);
+        setCommandResponse("AI has proposed the following actions. Review and apply:");
       }
-      setCommandText("");
     } catch (err) {
       console.error(err);
       setCommandResponse("Backend not reachable");
@@ -68,17 +70,37 @@ export default function CommandExecutor() {
   };
 
   // ---------------------------
-  // Task Functions
+  // Apply single AI action
+  // ---------------------------
+  const applyAiAction = async (actionText) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: actionText }),
+      });
+      const data = await res.json();
+      setCommandResponse(prev => prev + `\n✅ Applied: ${actionText}\nResult: ${data.result}`);
+      fetchTasks();
+      fetchProjects();
+      // Remove applied action from plan
+      setAiPlan(aiPlan.filter(a => a !== actionText));
+    } catch (err) {
+      console.error("Error applying AI action:", err);
+    }
+  };
+
+  // ---------------------------
+  // Task / Project Manual Functions
   // ---------------------------
   const addTask = async () => {
     if (!newTaskTitle.trim()) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/tasks`, {
+      await fetch(`${API_BASE_URL}/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: tasks.length + 1, title: newTaskTitle, done: false }),
       });
-      await res.json();
       setNewTaskTitle("");
       fetchTasks();
     } catch (err) {
@@ -88,26 +110,21 @@ export default function CommandExecutor() {
 
   const toggleTask = async (id) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/tasks/${id}`, { method: "PATCH" });
-      await res.json();
+      await fetch(`${API_BASE_URL}/tasks/${id}`, { method: "PATCH" });
       fetchTasks();
     } catch (err) {
       console.error("Error toggling task:", err);
     }
   };
 
-  // ---------------------------
-  // Project Functions
-  // ---------------------------
   const addProject = async () => {
     if (!newProjectName.trim()) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/projects`, {
+      await fetch(`${API_BASE_URL}/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: projects.length + 1, name: newProjectName, status: "Planning" }),
       });
-      await res.json();
       setNewProjectName("");
       fetchProjects();
     } catch (err) {
@@ -117,8 +134,7 @@ export default function CommandExecutor() {
 
   const toggleProjectStatus = async (id) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/projects/${id}`, { method: "PATCH" });
-      await res.json();
+      await fetch(`${API_BASE_URL}/projects/${id}`, { method: "PATCH" });
       fetchProjects();
     } catch (err) {
       console.error("Error toggling project status:", err);
@@ -145,6 +161,21 @@ export default function CommandExecutor() {
       </button>
 
       <pre style={{ marginTop: 20, whiteSpace: "pre-wrap" }}>{commandResponse}</pre>
+
+      {/* AI Planned Actions */}
+      {aiPlan.length > 0 && (
+        <div>
+          <h3>AI Planned Actions</h3>
+          <ul>
+            {aiPlan.map((action, idx) => (
+              <li key={idx}>
+                {action}{" "}
+                <button onClick={() => applyAiAction(action)}>Apply</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Tasks */}
       <h3>Tasks</h3>
