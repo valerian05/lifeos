@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
 
 app = FastAPI()
 
@@ -8,60 +10,72 @@ app = FastAPI()
 # -------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://lifeos-vert.vercel.app"],  # your frontend URL
+    allow_origins=["https://lifeos-vert.vercel.app"],  # frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -------------------------------
-# Root Route
+# Models
+# -------------------------------
+class Task(BaseModel):
+    id: int
+    title: str
+    done: bool
+
+class User(BaseModel):
+    id: int
+    name: str
+
+# -------------------------------
+# In-memory data (example)
+# -------------------------------
+tasks = [
+    {"id": 1, "title": "Finish project", "done": False},
+    {"id": 2, "title": "Review PR", "done": True},
+]
+
+users = [
+    {"id": 1, "name": "Alice"},
+    {"id": 2, "name": "Bob"},
+    {"id": 3, "name": "Charlie"},
+]
+
+# -------------------------------
+# Routes
 # -------------------------------
 @app.get("/")
 def root():
     return {"status": "LifeOS backend running"}
 
-# -------------------------------
-# Health Check Route
-# -------------------------------
 @app.get("/health")
 def health():
     return {"ok": True}
 
-# -------------------------------
-# Users Route (Example)
-# -------------------------------
-@app.get("/users")
+@app.get("/users", response_model=List[User])
 def get_users():
-    return [
-        {"id": 1, "name": "Alice"},
-        {"id": 2, "name": "Bob"},
-        {"id": 3, "name": "Charlie"}
-    ]
+    return users
 
-# -------------------------------
-# Template for New Routes
-# -------------------------------
-
-# Example: /tasks
-@app.get("/tasks")
+@app.get("/tasks", response_model=List[Task])
 def get_tasks():
-    """
-    Returns a list of tasks.
-    Replace this with database logic later.
-    """
-    return [
-        {"id": 1, "title": "Finish project", "done": False},
-        {"id": 2, "title": "Review PR", "done": True},
-    ]
+    return tasks
 
-# Example: /projects
-@app.get("/projects")
-def get_projects():
-    """
-    Returns a list of projects.
-    """
-    return [
-        {"id": 1, "name": "LifeOS", "status": "active"},
-        {"id": 2, "name": "Personal AI", "status": "planning"},
-    ]
+# -------------------------------
+# Update a task (toggle done)
+# -------------------------------
+@app.patch("/tasks/{task_id}")
+def update_task(task_id: int):
+    for task in tasks:
+        if task["id"] == task_id:
+            task["done"] = not task["done"]
+            return task
+    return {"error": "Task not found"}, 404
+
+# -------------------------------
+# Add a new task
+# -------------------------------
+@app.post("/tasks")
+def add_task(task: Task):
+    tasks.append(task.dict())
+    return task
