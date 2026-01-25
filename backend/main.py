@@ -140,3 +140,26 @@ def edit_project(project_id: int, project: Project):
             p["name"] = project.name
             return p
     return {"error": "Project not found"}, 404
+from pydantic import BaseModel
+
+# -------------------------------
+# Intent Model
+# -------------------------------
+class Intent(BaseModel):
+    command: str
+
+# -------------------------------
+# Execute Intent Route
+# -------------------------------
+@app.post("/execute")
+def execute_intent(intent: Intent):
+    """
+    Receives a user command and returns an action response.
+    For now, it just echoes back the command.
+    """
+    # Placeholder for AI execution logic
+    return {
+        "command_received": intent.command,
+        "status": "executed",
+        "message": f"LIFE OS received your command: '{intent.command}'"
+    }
