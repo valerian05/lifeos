@@ -2,13 +2,14 @@ import { useState } from "react";
 
 export default function CommandExecutor() {
   const [command, setCommand] = useState("");
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState("");
 
-  // Make sure NEXT_PUBLIC_API_URL is set in Vercel env
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
   const sendCommand = async () => {
     if (!command) return;
+
+    setResult("Processing...");
 
     try {
       const res = await fetch(`${API_BASE_URL}/execute`, {
@@ -16,31 +17,28 @@ export default function CommandExecutor() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command }),
       });
+
       const data = await res.json();
-      setResult(data);
+      setResult(JSON.stringify(data, null, 2));
     } catch (err) {
       console.error(err);
-      setResult({ error: "Failed to reach backend" });
+      setResult("Backend not reachable yet");
     }
   };
 
   return (
-    <div style={{ margin: "20px" }}>
-      <h2>LIFE OS Command Executor</h2>
+    <div style={{ marginTop: 20 }}>
+      <h2>Command Executor</h2>
       <input
-        type="text"
-        placeholder="Type your command..."
+        style={{ width: "100%", padding: 10 }}
+        placeholder="Tell LifeOS what to do"
         value={command}
         onChange={(e) => setCommand(e.target.value)}
-        style={{ width: "300px", marginRight: "10px" }}
       />
-      <button onClick={sendCommand}>Send</button>
-
-      {result && (
-        <pre style={{ marginTop: "20px", background: "#f0f0f0", padding: "10px" }}>
-          {JSON.stringify(result, null, 2)}
-        </pre>
-      )}
+      <button style={{ marginTop: 10, padding: 10 }} onClick={sendCommand}>
+        Send
+      </button>
+      <pre style={{ marginTop: 20 }}>{result}</pre>
     </div>
   );
 }
