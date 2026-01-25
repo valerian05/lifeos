@@ -1,13 +1,27 @@
+# main.py
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
+import openai
 
+# -------------------------------
+# Load OpenAI API key
+# -------------------------------
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# -------------------------------
+# Load Core Prompt
+# -------------------------------
+with open("core_prompt.txt") as f:
+    CORE_PROMPT = f.read()
+
+# -------------------------------
+# FastAPI setup
+# -------------------------------
 app = FastAPI()
 
-# -------------------------------
-# CORS Configuration
-# -------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://lifeos-vert.vercel.app"],  # frontend URL
@@ -31,7 +45,10 @@ class User(BaseModel):
 class Project(BaseModel):
     id: int
     name: str
-    status: str  # e.g., Active, Planning, Completed
+    status: str
+
+class Intent(BaseModel):
+    command: str
 
 # -------------------------------
 # In-memory data
@@ -52,8 +69,10 @@ projects = [
     {"id": 2, "name": "Personal AI", "status": "Planning"},
 ]
 
+memory = []  # Optional AI memory
+
 # -------------------------------
-# Routes
+# Basic Routes
 # -------------------------------
 @app.get("/")
 def root():
@@ -63,33 +82,21 @@ def root():
 def health():
     return {"ok": True}
 
-# -------------------------------
-# Users
-# -------------------------------
 @app.get("/users", response_model=List[User])
 def get_users():
     return users
 
-@app.post("/users")
-def add_user(user: User):
-    users.append(user.dict())
-    return user
-
-@app.patch("/users/{user_id}")
-def edit_user(user_id: int, user: User):
-    for u in users:
-        if u["id"] == user_id:
-            u["name"] = user.name
-            return u
-    return {"error": "User not found"}, 404
-
-# -------------------------------
-# Tasks
-# -------------------------------
 @app.get("/tasks", response_model=List[Task])
 def get_tasks():
     return tasks
 
+@app.get("/projects", response_model=List[Project])
+def get_projects():
+    return projects
+
+# -------------------------------
+# CRUD Routes
+# -------------------------------
 @app.post("/tasks")
 def add_task(task: Task):
     tasks.append(task.dict())
@@ -97,26 +104,11 @@ def add_task(task: Task):
 
 @app.patch("/tasks/{task_id}")
 def toggle_task(task_id: int):
-    for task in tasks:
-        if task["id"] == task_id:
-            task["done"] = not task["done"]
-            return task
-    return {"error": "Task not found"}, 404
-
-@app.patch("/tasks/{task_id}/edit")
-def edit_task(task_id: int, task: Task):
     for t in tasks:
         if t["id"] == task_id:
-            t["title"] = task.title
+            t["done"] = not t["done"]
             return t
     return {"error": "Task not found"}, 404
-
-# -------------------------------
-# Projects
-# -------------------------------
-@app.get("/projects", response_model=List[Project])
-def get_projects():
-    return projects
 
 @app.post("/projects")
 def add_project(project: Project):
@@ -126,40 +118,46 @@ def add_project(project: Project):
 @app.patch("/projects/{project_id}")
 def toggle_project_status(project_id: int):
     status_order = ["Planning", "Active", "Completed"]
-    for project in projects:
-        if project["id"] == project_id:
-            current_index = status_order.index(project["status"])
-            project["status"] = status_order[(current_index + 1) % len(status_order)]
-            return project
-    return {"error": "Project not found"}, 404
-
-@app.patch("/projects/{project_id}/edit")
-def edit_project(project_id: int, project: Project):
     for p in projects:
         if p["id"] == project_id:
-            p["name"] = project.name
+            current_index = status_order.index(p["status"])
+            p["status"] = status_order[(current_index + 1) % len(status_order)]
             return p
     return {"error": "Project not found"}, 404
-from pydantic import BaseModel
 
 # -------------------------------
-# Intent Model
-# -------------------------------
-class Intent(BaseModel):
-    command: str
-
-# -------------------------------
-# Execute Intent Route
+# AI Command Executor
 # -------------------------------
 @app.post("/execute")
 def execute_intent(intent: Intent):
-    """
-    Receives a user command and returns an action response.
-    For now, it just echoes back the command.
-    """
-    # Placeholder for AI execution logic
-    return {
-        "command_received": intent.command,
-        "status": "executed",
-        "message": f"LIFE OS received your command: '{intent.command}'"
-    }
+    user_command = intent.command
+    try:
+        # Include memory in prompt (optional)
+        memory_prompt = ""
+        for m in memory[-10:]:  # last 10 commands
+            memory_prompt += f"Command: {m['command']}\nResponse: {m['response']}\n"
+
+        messages = [
+            {"role": "system", "content": CORE_PROMPT},
+            {"role": "user", "content": memory_prompt + f"User command: {user_command}"}
+        ]
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=messages,
+            temperature=0.7
+        )
+
+        ai_message = response.choices[0].message.content
+
+        # Save to memory
+        memory.append({"command": user_command, "response": ai_message})
+
+        return {
+            "command_received": user_command,
+            "status": "executed",
+            "message": ai_message
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
