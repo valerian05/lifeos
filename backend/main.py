@@ -75,12 +75,25 @@ def add_user(user: User):
     users.append(user.dict())
     return user
 
+@app.patch("/users/{user_id}")
+def edit_user(user_id: int, user: User):
+    for u in users:
+        if u["id"] == user_id:
+            u["name"] = user.name
+            return u
+    return {"error": "User not found"}, 404
+
 # -------------------------------
 # Tasks
 # -------------------------------
 @app.get("/tasks", response_model=List[Task])
 def get_tasks():
     return tasks
+
+@app.post("/tasks")
+def add_task(task: Task):
+    tasks.append(task.dict())
+    return task
 
 @app.patch("/tasks/{task_id}")
 def toggle_task(task_id: int):
@@ -90,10 +103,13 @@ def toggle_task(task_id: int):
             return task
     return {"error": "Task not found"}, 404
 
-@app.post("/tasks")
-def add_task(task: Task):
-    tasks.append(task.dict())
-    return task
+@app.patch("/tasks/{task_id}/edit")
+def edit_task(task_id: int, task: Task):
+    for t in tasks:
+        if t["id"] == task_id:
+            t["title"] = task.title
+            return t
+    return {"error": "Task not found"}, 404
 
 # -------------------------------
 # Projects
@@ -115,4 +131,12 @@ def toggle_project_status(project_id: int):
             current_index = status_order.index(project["status"])
             project["status"] = status_order[(current_index + 1) % len(status_order)]
             return project
+    return {"error": "Project not found"}, 404
+
+@app.patch("/projects/{project_id}/edit")
+def edit_project(project_id: int, project: Project):
+    for p in projects:
+        if p["id"] == project_id:
+            p["name"] = project.name
+            return p
     return {"error": "Project not found"}, 404
