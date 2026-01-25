@@ -3,3 +3,4 @@ uvicorn
 pydantic
 python-dotenv
 openai
+pip install -r requirements.txt
