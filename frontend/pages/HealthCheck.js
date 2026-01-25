@@ -1,54 +1,74 @@
-// pages/HealthCheck.js
 import { useEffect, useState } from "react";
 
 export default function HealthCheck() {
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL; // Make sure this is set in Vercel
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
-  const [status, setStatus] = useState(null);
+  const [root, setRoot] = useState(null);
   const [health, setHealth] = useState(null);
   const [users, setUsers] = useState(null);
-  const [error, setError] = useState(null);
+  const [tasks, setTasks] = useState(null);
+  const [projects, setProjects] = useState(null);
 
-  // Fetch Root status
   useEffect(() => {
+    // Root
     fetch(`${API_BASE_URL}/`)
       .then(res => res.json())
-      .then(data => setStatus(data))
-      .catch(err => setError(err.message));
+      .then(setRoot)
+      .catch(console.error);
 
-    // Fetch Health
+    // Health
     fetch(`${API_BASE_URL}/health`)
       .then(res => res.json())
-      .then(data => setHealth(data))
-      .catch(err => setError(err.message));
+      .then(setHealth)
+      .catch(console.error);
 
-    // Fetch Users
+    // Users
     fetch(`${API_BASE_URL}/users`)
       .then(res => res.json())
-      .then(data => setUsers(data))
-      .catch(err => console.error("Failed to fetch users:", err));
-  }, [API_BASE_URL]);
+      .then(setUsers)
+      .catch(console.error);
+
+    // Tasks
+    fetch(`${API_BASE_URL}/tasks`)
+      .then(res => res.json())
+      .then(setTasks)
+      .catch(console.error);
+
+    // Projects
+    fetch(`${API_BASE_URL}/projects`)
+      .then(res => res.json())
+      .then(setProjects)
+      .catch(console.error);
+  }, []);
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "Arial" }}>
+    <div style={{ padding: "2rem", fontFamily: "Arial, sans-serif" }}>
       <h1>LifeOS Backend Status</h1>
 
-      {error && <p style={{ color: "red" }}>Error: {error}</p>}
-
-      <div>
+      <section>
         <h2>Root Status:</h2>
-        <pre>{status ? JSON.stringify(status, null, 2) : "Loading..."}</pre>
-      </div>
+        <pre>{root ? JSON.stringify(root, null, 2) : "Loading..."}</pre>
+      </section>
 
-      <div>
+      <section>
         <h2>Health Check:</h2>
         <pre>{health ? JSON.stringify(health, null, 2) : "Loading..."}</pre>
-      </div>
+      </section>
 
-      <div>
+      <section>
         <h2>Users:</h2>
         <pre>{users ? JSON.stringify(users, null, 2) : "Loading..."}</pre>
-      </div>
+      </section>
+
+      <section>
+        <h2>Tasks:</h2>
+        <pre>{tasks ? JSON.stringify(tasks, null, 2) : "Loading..."}</pre>
+      </section>
+
+      <section>
+        <h2>Projects:</h2>
+        <pre>{projects ? JSON.stringify(projects, null, 2) : "Loading..."}</pre>
+      </section>
     </div>
   );
 }
