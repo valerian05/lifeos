@@ -53,6 +53,13 @@ class Intent(BaseModel):
 # -------------------------------
 # In-memory data
 # -------------------------------
+identities = {
+    "demo-user": {
+        "user_id": "demo-user",
+        "name": "LifeOS Owner"
+    }
+}
+
 tasks = [
     {"id": 1, "title": "Finish project", "done": True},
     {"id": 2, "title": "Review PR", "done": True},
