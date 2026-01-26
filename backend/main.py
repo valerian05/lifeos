@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 from typing import List
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
@@ -10,10 +10,9 @@ from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # -----------------------------
-# DB SETUP
+# DATABASE SETUP
 # -----------------------------
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/lifeos.db")
-
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
@@ -118,7 +117,7 @@ def execute_action(action: dict) -> str:
     return "No action"
 
 # -----------------------------
-# PROCESS PENDING COMMANDS
+# BACKGROUND QUEUE PROCESSING
 # -----------------------------
 async def process_pending_loop():
     """Background loop to auto-process queued commands"""
@@ -162,9 +161,6 @@ async def process_pending_loop():
                 db.close()
         await asyncio.sleep(5)  # Check every 5 seconds
 
-# -----------------------------
-# START BACKGROUND LOOP
-# -----------------------------
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(process_pending_loop())
@@ -196,7 +192,6 @@ def get_projects():
 def execute_intent(intent: Intent):
     client = get_openai_client()
     if not client:
-        # Queue command if OpenAI not available
         pending_commands.append(intent.command)
         return {"status": "queued", "message": "OpenAI not configured. Command added to pending queue."}
 
