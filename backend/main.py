@@ -1,7 +1,8 @@
 import os
 import json
+import asyncio
 from typing import List
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
@@ -78,7 +79,6 @@ class Project(BaseModel):
 # -----------------------------
 tasks: List[dict] = []
 projects: List[dict] = []
-# Queue to hold commands if OpenAI not configured
 pending_commands: List[str] = []
 
 # -----------------------------
@@ -118,47 +118,56 @@ def execute_action(action: dict) -> str:
     return "No action"
 
 # -----------------------------
-# PROCESS QUEUE
+# PROCESS PENDING COMMANDS
 # -----------------------------
-def process_pending_commands():
-    client = get_openai_client()
-    if not client or not pending_commands:
-        return []
+async def process_pending_loop():
+    """Background loop to auto-process queued commands"""
+    while True:
+        if pending_commands and is_openai_configured():
+            client = get_openai_client()
+            db: Session = SessionLocal()
+            try:
+                while pending_commands:
+                    command = pending_commands.pop(0)
+                    try:
+                        response = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            temperature=0.2,
+                            messages=[
+                                {"role": "system", "content": CORE_PROMPT},
+                                {"role": "user", "content": command}
+                            ],
+                        )
+                        raw = response.choices[0].message.content
+                        ai_data = json.loads(raw)
 
-    db: Session = SessionLocal()
-    results_summary = []
+                        results = []
+                        for action in ai_data.get("actions", []):
+                            results.append(execute_action(action))
 
-    try:
-        while pending_commands:
-            command = pending_commands.pop(0)
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                temperature=0.2,
-                messages=[
-                    {"role": "system", "content": CORE_PROMPT},
-                    {"role": "user", "content": command}
-                ],
-            )
-            raw = response.choices[0].message.content
-            ai_data = json.loads(raw)
+                        db.add(
+                            Memory(
+                                command=command,
+                                ai_json=json.dumps(ai_data),
+                                action_result=" | ".join(results)
+                            )
+                        )
+                        db.commit()
+                        print(f"[LifeOS] Auto-processed command: {command}")
+                    except Exception as e:
+                        print(f"[LifeOS] Error processing command: {command} | {e}")
+                        pending_commands.insert(0, command)  # Retry later
+                        break
+            finally:
+                db.close()
+        await asyncio.sleep(5)  # Check every 5 seconds
 
-            results = []
-            for action in ai_data.get("actions", []):
-                results.append(execute_action(action))
-
-            db.add(
-                Memory(
-                    command=command,
-                    ai_json=json.dumps(ai_data),
-                    action_result=" | ".join(results)
-                )
-            )
-            db.commit()
-            results_summary.append({"command": command, "result": results})
-    finally:
-        db.close()
-
-    return results_summary
+# -----------------------------
+# START BACKGROUND LOOP
+# -----------------------------
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(process_pending_loop())
 
 # -----------------------------
 # ROUTES
@@ -182,12 +191,6 @@ def get_tasks():
 @app.get("/projects", response_model=List[Project])
 def get_projects():
     return projects
-
-@app.get("/process-pending")
-def run_pending():
-    """Manually trigger pending commands processing"""
-    results = process_pending_commands()
-    return {"processed": len(results), "results": results}
 
 @app.post("/execute")
 def execute_intent(intent: Intent):
