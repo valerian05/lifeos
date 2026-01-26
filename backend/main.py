@@ -9,18 +9,10 @@ from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # -----------------------------
-# ENV (SAFE)
+# DB SETUP
 # -----------------------------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/lifeos.db")
 
-openai_configured = bool(OPENAI_API_KEY)
-
-client = OpenAI(api_key=OPENAI_API_KEY) if openai_configured else None
-
-# -----------------------------
-# DB
-# -----------------------------
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
@@ -86,28 +78,20 @@ class Project(BaseModel):
 # -----------------------------
 tasks: List[dict] = []
 projects: List[dict] = []
+# Queue to hold commands if OpenAI not configured
+pending_commands: List[str] = []
 
 # -----------------------------
-# ROUTES
+# OPENAI LAZY LOADING
 # -----------------------------
-@app.get("/")
-def root():
-    return {"status": "LifeOS backend running"}
+def get_openai_client():
+    key = os.getenv("OPENAI_API_KEY", "")
+    if not key:
+        return None
+    return OpenAI(api_key=key)
 
-@app.get("/health")
-def health():
-    return {
-        "ok": True,
-        "openai_configured": openai_configured
-    }
-
-@app.get("/tasks", response_model=List[Task])
-def get_tasks():
-    return tasks
-
-@app.get("/projects", response_model=List[Project])
-def get_projects():
-    return projects
+def is_openai_configured():
+    return bool(os.getenv("OPENAI_API_KEY", ""))
 
 # -----------------------------
 # ACTION EXECUTOR
@@ -134,15 +118,86 @@ def execute_action(action: dict) -> str:
     return "No action"
 
 # -----------------------------
-# EXECUTE
+# PROCESS QUEUE
 # -----------------------------
-@app.post("/execute")
-def execute_intent(intent: Intent):
-    if not openai_configured:
-        return {"error": "OpenAI not configured"}
+def process_pending_commands():
+    client = get_openai_client()
+    if not client or not pending_commands:
+        return []
 
     db: Session = SessionLocal()
+    results_summary = []
 
+    try:
+        while pending_commands:
+            command = pending_commands.pop(0)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                temperature=0.2,
+                messages=[
+                    {"role": "system", "content": CORE_PROMPT},
+                    {"role": "user", "content": command}
+                ],
+            )
+            raw = response.choices[0].message.content
+            ai_data = json.loads(raw)
+
+            results = []
+            for action in ai_data.get("actions", []):
+                results.append(execute_action(action))
+
+            db.add(
+                Memory(
+                    command=command,
+                    ai_json=json.dumps(ai_data),
+                    action_result=" | ".join(results)
+                )
+            )
+            db.commit()
+            results_summary.append({"command": command, "result": results})
+    finally:
+        db.close()
+
+    return results_summary
+
+# -----------------------------
+# ROUTES
+# -----------------------------
+@app.get("/")
+def root():
+    return {"status": "LifeOS backend running"}
+
+@app.get("/health")
+def health():
+    return {
+        "ok": True,
+        "openai_configured": is_openai_configured(),
+        "pending_commands": len(pending_commands)
+    }
+
+@app.get("/tasks", response_model=List[Task])
+def get_tasks():
+    return tasks
+
+@app.get("/projects", response_model=List[Project])
+def get_projects():
+    return projects
+
+@app.get("/process-pending")
+def run_pending():
+    """Manually trigger pending commands processing"""
+    results = process_pending_commands()
+    return {"processed": len(results), "results": results}
+
+@app.post("/execute")
+def execute_intent(intent: Intent):
+    client = get_openai_client()
+    if not client:
+        # Queue command if OpenAI not available
+        pending_commands.append(intent.command)
+        return {"status": "queued", "message": "OpenAI not configured. Command added to pending queue."}
+
+    db: Session = SessionLocal()
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
