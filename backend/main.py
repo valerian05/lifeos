@@ -9,12 +9,14 @@ from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # -----------------------------
-# ENV
+# ENV (SAFE)
 # -----------------------------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/lifeos.db")
 
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+openai_configured = bool(OPENAI_API_KEY)
+
+client = OpenAI(api_key=OPENAI_API_KEY) if openai_configured else None
 
 # -----------------------------
 # DB
@@ -36,11 +38,11 @@ Base.metadata.create_all(bind=engine)
 # -----------------------------
 # CORE PROMPT
 # -----------------------------
-CORE_PROMPT = """
+CORE_PROMPT = os.getenv(
+    "CORE_PROMPT",
+    """
 You are LifeOS, an autonomous AI operating system.
-
-Respond ONLY with valid JSON.
-No markdown. No explanations.
+Respond ONLY in valid JSON.
 
 Schema:
 {
@@ -50,6 +52,7 @@ Schema:
   ]
 }
 """
+)
 
 # -----------------------------
 # APP
@@ -95,7 +98,7 @@ def root():
 def health():
     return {
         "ok": True,
-        "openai_configured": bool(OPENAI_API_KEY)
+        "openai_configured": openai_configured
     }
 
 @app.get("/tasks", response_model=List[Task])
@@ -131,14 +134,15 @@ def execute_action(action: dict) -> str:
     return "No action"
 
 # -----------------------------
-# AI EXECUTION
+# EXECUTE
 # -----------------------------
 @app.post("/execute")
 def execute_intent(intent: Intent):
-    if not client:
-        return {"error": "OPENAI_API_KEY not configured"}
+    if not openai_configured:
+        return {"error": "OpenAI not configured"}
 
     db: Session = SessionLocal()
+
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -150,27 +154,26 @@ def execute_intent(intent: Intent):
         )
 
         raw = response.choices[0].message.content
-        data = json.loads(raw)
+        ai_data = json.loads(raw)
 
-        results = [execute_action(a) for a in data.get("actions", [])]
+        results = []
+        for action in ai_data.get("actions", []):
+            results.append(execute_action(action))
 
         db.add(
             Memory(
                 command=intent.command,
-                ai_json=json.dumps(data),
-                action_result=" | ".join(results),
+                ai_json=json.dumps(ai_data),
+                action_result=" | ".join(results)
             )
         )
         db.commit()
 
         return {
-            "intent": data.get("intent"),
-            "actions": data.get("actions"),
-            "result": results,
+            "intent": ai_data.get("intent"),
+            "actions": ai_data.get("actions"),
+            "result": results
         }
-
-    except json.JSONDecodeError:
-        return {"error": "AI returned invalid JSON"}
 
     except Exception as e:
         return {"error": str(e)}
