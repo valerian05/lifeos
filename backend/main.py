@@ -193,7 +193,10 @@ def execute_intent(intent: Intent):
     client = get_openai_client()
     if not client:
         pending_commands.append(intent.command)
-        return {"status": "queued", "message": "OpenAI not configured. Command added to pending queue."}
+        return {
+            "status": "queued",
+            "message": "OpenAI not configured. Command added to pending queue."
+        }
 
     db: Session = SessionLocal()
     try:
@@ -233,3 +236,11 @@ def execute_intent(intent: Intent):
 
     finally:
         db.close()
+
+# -----------------------------
+# DEBUG ROUTE (TEMPORARY)
+# -----------------------------
+@app.get("/debug-env")
+def debug_env():
+    # Shows exactly what the container sees for OPENAI_API_KEY
+    return {"OPENAI_API_KEY_value": os.getenv("OPENAI_API_KEY")}
