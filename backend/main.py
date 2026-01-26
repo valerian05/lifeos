@@ -22,7 +22,10 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # -----------------------------
 # DB
 # -----------------------------
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}
+)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -33,6 +36,18 @@ class Memory(Base):
     command = Column(Text)
     ai_json = Column(Text)
     action_result = Column(Text)
+
+class TaskModel(Base):
+    __tablename__ = "tasks"
+    id = Column(Integer, primary_key=True)
+    title = Column(String)
+    done = Column(Integer, default=0)
+
+class ProjectModel(Base):
+    __tablename__ = "projects"
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    status = Column(String, default="Planning")
 
 Base.metadata.create_all(bind=engine)
 
@@ -88,12 +103,6 @@ class Project(BaseModel):
     status: str
 
 # -----------------------------
-# STATE (v1 simple memory)
-# -----------------------------
-tasks: List[dict] = []
-projects: List[dict] = []
-
-# -----------------------------
 # ROUTES
 # -----------------------------
 @app.get("/")
@@ -106,40 +115,55 @@ def health():
 
 @app.get("/tasks", response_model=List[Task])
 def get_tasks():
-    return tasks
+    db: Session = SessionLocal()
+    try:
+        rows = db.query(TaskModel).all()
+        return [
+            {"id": r.id, "title": r.title, "done": bool(r.done)}
+            for r in rows
+        ]
+    finally:
+        db.close()
 
 @app.get("/projects", response_model=List[Project])
 def get_projects():
-    return projects
+    db: Session = SessionLocal()
+    try:
+        rows = db.query(ProjectModel).all()
+        return [
+            {"id": r.id, "name": r.name, "status": r.status}
+            for r in rows
+        ]
+    finally:
+        db.close()
 
 # -----------------------------
 # ACTION EXECUTOR
 # -----------------------------
-def execute_action(action: dict) -> str:
+def execute_action(action: dict, db: Session) -> str:
     action_type = action.get("type")
     value = (action.get("value") or "").strip()
 
     if action_type == "ADD_TASK" and value:
-        tasks.append({
-            "id": len(tasks) + 1,
-            "title": value,
-            "done": False
-        })
+        db.add(TaskModel(title=value, done=0))
+        db.commit()
         return f"Task added: {value}"
 
     if action_type == "COMPLETE_TASK" and value:
-        for t in tasks:
-            if t["title"].lower() == value.lower():
-                t["done"] = True
-                return f"Task completed: {value}"
+        task = (
+            db.query(TaskModel)
+            .filter(TaskModel.title.ilike(value))
+            .first()
+        )
+        if task:
+            task.done = 1
+            db.commit()
+            return f"Task completed: {value}"
         return f"Task not found: {value}"
 
     if action_type == "ADD_PROJECT" and value:
-        projects.append({
-            "id": len(projects) + 1,
-            "name": value,
-            "status": "Planning"
-        })
+        db.add(ProjectModel(name=value, status="Planning"))
+        db.commit()
         return f"Project added: {value}"
 
     return "No action"
@@ -162,15 +186,13 @@ def execute_intent(intent: Intent):
         )
 
         raw_output = response.choices[0].message.content.strip()
-
-        # HARD JSON PARSE
         ai_data = json.loads(raw_output)
 
         actions = ai_data.get("actions", [])
         results = []
 
         for action in actions:
-            results.append(execute_action(action))
+            results.append(execute_action(action, db))
 
         db.add(
             Memory(
