@@ -14,10 +14,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/lifeos.db")
 
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY not set")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # -----------------------------
 # DB
@@ -96,7 +93,10 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    return {
+        "ok": True,
+        "openai_configured": bool(OPENAI_API_KEY)
+    }
 
 @app.get("/tasks", response_model=List[Task])
 def get_tasks():
@@ -135,6 +135,9 @@ def execute_action(action: dict) -> str:
 # -----------------------------
 @app.post("/execute")
 def execute_intent(intent: Intent):
+    if not client:
+        return {"error": "OPENAI_API_KEY not configured"}
+
     db: Session = SessionLocal()
     try:
         response = client.chat.completions.create(
