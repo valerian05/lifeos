@@ -12,7 +12,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # --- PRE-FLIGHT LOGGING ---
-# Configuring logging immediately to capture startup errors in Railway logs
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -30,7 +29,6 @@ except ImportError:
 app = FastAPI(title="LifeOS Autonomous Core")
 
 # --- STRENGTHENED CORS ---
-# Essential for the Vercel dashboard to communicate with the Railway API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,9 +39,20 @@ app.add_middleware(
 
 # --- CONFIGURATION ---
 GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
-API_KEY = os.environ.get("GEMINI_API_KEY", "")
-STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
-GOOGLE_TOKEN_JSON = os.environ.get("GOOGLE_TOKEN_JSON", "") 
+API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "").strip()
+GOOGLE_TOKEN_JSON = os.environ.get("GOOGLE_TOKEN_JSON", "").strip() 
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+
+# Use the CORE_PROMPT from Railway if it exists, otherwise use fallback
+DEFAULT_SYSTEM_PROMPT = """
+You are LifeOS, an autonomous agentic operating system. 
+You do not chat; you optimize. 
+Analyze the user's current context and return a structured JSON response.
+Identify 1-3 'Pending Actions' that you will execute to benefit the user's Health, Wealth, or Focus.
+Action Types: 'CALENDAR_SHIELD', 'FINANCE_SWEEP', 'HEALTH_PREEMPT', 'COGNITIVE_RESET'.
+"""
+SYSTEM_PROMPT = os.environ.get("CORE_PROMPT", DEFAULT_SYSTEM_PROMPT)
 
 # Initialize Stripe defensively
 if STRIPE_API_KEY:
@@ -53,9 +62,9 @@ if STRIPE_API_KEY:
     except Exception as e:
         logger.error(f"Stripe initialization failed: {e}")
 else:
-    logger.warning("STRIPE_API_KEY not found. Wealth features will be limited.")
+    logger.warning("STRIPE_API_KEY not found.")
 
-# In-memory context (Replaced by Database in Phase 3)
+# In-memory context
 LATEST_CONTEXT = {
     "hrv": "Awaiting Sync",
     "sleep": "Awaiting Sync",
@@ -69,14 +78,6 @@ class LifeOSAction(BaseModel):
     description: str
     priority: int
 
-SYSTEM_PROMPT = """
-You are LifeOS, an autonomous agentic operating system. 
-You do not chat; you optimize. 
-Analyze the user's current context and return a structured JSON response.
-Identify 1-3 'Pending Actions' that you will execute to benefit the user's Health, Wealth, or Focus.
-Action Types: 'CALENDAR_SHIELD', 'FINANCE_SWEEP', 'HEALTH_PREEMPT', 'COGNITIVE_RESET'.
-"""
-
 # --- ACTION HANDLERS ---
 
 async def handle_calendar_shield(target_event_id: str):
@@ -89,11 +90,9 @@ async def handle_calendar_shield(target_event_id: str):
         
         event = service.events().get(calendarId='primary', eventId=target_event_id).execute()
         
-        # Determine if it is a dateTime or date event
         start = event['start'].get('dateTime', event['start'].get('date'))
         end = event['end'].get('dateTime', event['end'].get('date'))
         
-        # Shift 24 hours
         new_start = (datetime.fromisoformat(start.replace('Z', '')) + timedelta(days=1)).isoformat() + 'Z'
         new_end = (datetime.fromisoformat(end.replace('Z', '')) + timedelta(days=1)).isoformat() + 'Z'
         
@@ -125,11 +124,17 @@ async def handle_finance_sweep(amount_dollars: int):
 
 @app.get("/")
 async def health_check():
-    """Critical for Railway Health Check."""
+    """Detailed health check to debug Railway variables."""
     return {
         "status": "online",
         "system": "LifeOS Core",
-        "api_configured": bool(API_KEY),
+        "config_status": {
+            "gemini_api": bool(API_KEY),
+            "stripe_api": bool(STRIPE_API_KEY),
+            "google_calendar": bool(GOOGLE_TOKEN_JSON),
+            "database": bool(DATABASE_URL),
+            "custom_prompt_active": SYSTEM_PROMPT != DEFAULT_SYSTEM_PROMPT
+        },
         "timestamp": datetime.now().isoformat()
     }
 
@@ -143,7 +148,7 @@ async def ingest_life_data(payload: Dict[str, Any] = Body(...)):
 @app.get("/api/status")
 async def get_life_status():
     if not API_KEY:
-        return {"error": "GEMINI_API_KEY missing.", "score": 50, "insight": "Intelligence Core offline."}
+        return {"error": "GEMINI_API_KEY missing from environment.", "score": 50, "insight": "Intelligence Core offline."}
 
     payload = {
         "contents": [{"parts": [{"text": f"Context: {json.dumps(LATEST_CONTEXT)}"}]}],
@@ -180,7 +185,6 @@ async def execute_action(action: LifeOSAction):
 
 if __name__ == "__main__":
     import uvicorn
-    # VITAL: Binding to 0.0.0.0 and using the PORT provided by Railway
     port = int(os.environ.get("PORT", 8000))
     logger.info(f"Application attempting to bind to 0.0.0.0:{port}...")
     try:
