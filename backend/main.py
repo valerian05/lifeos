@@ -173,7 +173,7 @@ async def execute_action(action: LifeOSAction):
         result = await handle_calendar_shield(action.target)
     elif action.action_type == "FINANCE_SWEEP":
         result = await handle_finance_sweep(100)
-    elif action_type == "COGNITIVE_RESET":
+    elif action.action_type == "COGNITIVE_RESET":
         result = "Notification suppressors active."
         
     return {"status": "success", "execution_log": result}
@@ -182,8 +182,8 @@ if __name__ == "__main__":
     import uvicorn
     # VITAL: Binding to 0.0.0.0 and using the PORT provided by Railway
     port = int(os.environ.get("PORT", 8000))
-    logger.info(f"Application starting on port {port}...")
+    logger.info(f"Application attempting to bind to 0.0.0.0:{port}...")
     try:
-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info", access_log=True)
     except Exception as e:
         logger.critical(f"FATAL STARTUP ERROR: {e}")
