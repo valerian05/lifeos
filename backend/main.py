@@ -11,14 +11,8 @@ from fastapi import FastAPI, BackgroundTasks, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Google Calendar Imports with Error Handling
-try:
-    from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
-except ImportError:
-    print("CRITICAL: Google API libraries not found. Ensure requirements.txt includes google-api-python-client and google-auth-oauthlib")
-
-# Configure Logging for Railway Debugging
+# --- PRE-FLIGHT LOGGING ---
+# Configuring logging immediately to capture startup errors in Railway logs
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -26,39 +20,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger("LifeOS")
 
+# --- DEPENDENCY CHECK ---
+try:
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+except ImportError:
+    logger.error("MISSING DEPENDENCIES: google-api-python-client or google-auth-oauthlib not found.")
+
 app = FastAPI(title="LifeOS Autonomous Core")
 
-# STRENGHTENED CORS: Allow the dashboard to communicate with this API
+# --- STRENGTHENED CORS ---
+# Essential for the Vercel dashboard to communicate with the Railway API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with your Vercel URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configuration from Railway Environment Variables
+# --- CONFIGURATION ---
 GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
 STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 GOOGLE_TOKEN_JSON = os.environ.get("GOOGLE_TOKEN_JSON", "") 
 
-# Initialize Stripe safely
+# Initialize Stripe defensively
 if STRIPE_API_KEY:
     try:
         stripe.api_key = STRIPE_API_KEY
-        logger.info("Stripe initialized successfully.")
+        logger.info("Stripe SDK initialized.")
     except Exception as e:
-        logger.error(f"Failed to initialize Stripe: {e}")
+        logger.error(f"Stripe initialization failed: {e}")
 else:
-    logger.warning("STRIPE_API_KEY not found. Wealth optimization will be disabled.")
+    logger.warning("STRIPE_API_KEY not found. Wealth features will be limited.")
 
-# In-memory store for the latest context
+# In-memory context (Replaced by Database in Phase 3)
 LATEST_CONTEXT = {
-    "hrv": "Pending sync...",
-    "sleep": "Pending sync...",
-    "focus_level": "Awaiting data",
-    "bank_balance": "Awaiting data"
+    "hrv": "Awaiting Sync",
+    "sleep": "Awaiting Sync",
+    "focus_level": "Awaiting Sync",
+    "bank_balance": "Awaiting Sync"
 }
 
 class LifeOSAction(BaseModel):
@@ -67,7 +69,6 @@ class LifeOSAction(BaseModel):
     description: str
     priority: int
 
-# System Prompt for the Autonomous Agent
 SYSTEM_PROMPT = """
 You are LifeOS, an autonomous agentic operating system. 
 You do not chat; you optimize. 
@@ -76,13 +77,11 @@ Identify 1-3 'Pending Actions' that you will execute to benefit the user's Healt
 Action Types: 'CALENDAR_SHIELD', 'FINANCE_SWEEP', 'HEALTH_PREEMPT', 'COGNITIVE_RESET'.
 """
 
-# --- Action Handlers ---
+# --- ACTION HANDLERS ---
 
 async def handle_calendar_shield(target_event_id: str):
-    """Moves a meeting to the next day to protect user focus."""
     if not GOOGLE_TOKEN_JSON:
-        return "Error: GOOGLE_TOKEN_JSON not set."
-    
+        return "Error: GOOGLE_TOKEN_JSON missing."
     try:
         creds_info = json.loads(GOOGLE_TOKEN_JSON)
         creds = Credentials.from_authorized_user_info(creds_info)
@@ -90,145 +89,101 @@ async def handle_calendar_shield(target_event_id: str):
         
         event = service.events().get(calendarId='primary', eventId=target_event_id).execute()
         
-        start_data = event['start']
-        end_data = event['end']
-        start_str = start_data.get('dateTime', start_data.get('date'))
-        end_str = end_data.get('dateTime', end_data.get('date'))
+        # Determine if it is a dateTime or date event
+        start = event['start'].get('dateTime', event['start'].get('date'))
+        end = event['end'].get('dateTime', event['end'].get('date'))
         
-        curr_start = datetime.fromisoformat(start_str.replace('Z', ''))
-        curr_end = datetime.fromisoformat(end_str.replace('Z', ''))
+        # Shift 24 hours
+        new_start = (datetime.fromisoformat(start.replace('Z', '')) + timedelta(days=1)).isoformat() + 'Z'
+        new_end = (datetime.fromisoformat(end.replace('Z', '')) + timedelta(days=1)).isoformat() + 'Z'
         
-        new_start = (curr_start + timedelta(days=1)).isoformat() + 'Z'
-        new_end = (curr_end + timedelta(days=1)).isoformat() + 'Z'
+        event['start']['dateTime'] = new_start
+        event['end']['dateTime'] = new_end
         
-        if 'dateTime' in start_data:
-            event['start']['dateTime'] = new_start
-            event['end']['dateTime'] = new_end
-        else:
-            event['start']['date'] = new_start.split('T')[0]
-            event['end']['date'] = new_end.split('T')[0]
-        
-        updated_event = service.events().update(calendarId='primary', eventId=target_event_id, body=event).execute()
-        return f"Rescheduled: {updated_event.get('summary')} to {new_start}"
+        service.events().update(calendarId='primary', eventId=target_event_id, body=event).execute()
+        return f"Focus Shielded: Moved '{event.get('summary')}' to tomorrow."
     except Exception as e:
-        logger.error(f"Calendar Error: {e}")
+        logger.error(f"Calendar Action Failed: {e}")
         return f"Calendar Error: {str(e)}"
 
 async def handle_finance_sweep(amount_dollars: int):
-    """Moves idle cash to a secondary destination via Stripe."""
     if not STRIPE_API_KEY:
-        return "Error: STRIPE_API_KEY not set."
-    
+        return "Error: STRIPE_API_KEY missing."
     try:
         transfer = stripe.Transfer.create(
             amount=int(amount_dollars * 100),
             currency="usd",
             destination="default_for_savings", 
-            description="LifeOS Autonomous Wealth Sweep"
+            description="LifeOS Wealth Optimization"
         )
-        return f"Transfer Successful: ID {transfer.id}"
+        return f"Sweep Complete: ID {transfer.id}"
     except Exception as e:
-        logger.error(f"Stripe Error: {e}")
+        logger.error(f"Stripe Action Failed: {e}")
         return f"Stripe Error: {str(e)}"
 
-# --- Endpoints ---
+# --- ENDPOINTS ---
 
 @app.get("/")
-async def root():
-    """Health check for Railway."""
+async def health_check():
+    """Critical for Railway Health Check."""
     return {
         "status": "online",
-        "message": "LifeOS Core is active.",
-        "api_key_configured": bool(API_KEY),
-        "google_token_configured": bool(GOOGLE_TOKEN_JSON),
+        "system": "LifeOS Core",
+        "api_configured": bool(API_KEY),
         "timestamp": datetime.now().isoformat()
     }
 
 @app.post("/api/ingest")
 async def ingest_life_data(payload: Dict[str, Any] = Body(...)):
-    """Receives data from local sensor_feed.py."""
     global LATEST_CONTEXT
     LATEST_CONTEXT.update(payload)
-    LATEST_CONTEXT["last_sync"] = datetime.now().isoformat()
-    logger.info(f"Ingested metrics: {list(payload.keys())}")
-    return {"status": "success", "received": payload}
+    logger.info(f"Context Sync: {list(payload.keys())}")
+    return {"status": "success"}
 
 @app.get("/api/status")
 async def get_life_status():
-    """AI analyses context and returns insights."""
     if not API_KEY:
-        logger.error("Attempted to fetch status without GEMINI_API_KEY.")
-        return {"error": "GEMINI_API_KEY not found", "score": 50, "insight": "Intelligence Core Missing."}
+        return {"error": "GEMINI_API_KEY missing.", "score": 50, "insight": "Intelligence Core offline."}
 
     payload = {
         "contents": [{"parts": [{"text": f"Context: {json.dumps(LATEST_CONTEXT)}"}]}],
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": {
-                "type": "OBJECT",
-                "properties": {
-                    "score": {"type": "NUMBER"},
-                    "health_index": {"type": "NUMBER"},
-                    "wealth_index": {"type": "NUMBER"},
-                    "focus_index": {"type": "NUMBER"},
-                    "insight": {"type": "STRING"},
-                    "pending_actions": {
-                        "type": "ARRAY",
-                        "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "action_type": {"type": "STRING"},
-                                "target": {"type": "STRING"},
-                                "description": {"type": "STRING"},
-                                "priority": {"type": "NUMBER"}
-                            }
-                        }
-                    }
-                },
-                "required": ["score", "insight", "pending_actions"]
-            }
-        }
+        "generationConfig": {"responseMimeType": "application/json"}
     }
 
     async with httpx.AsyncClient() as client:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={API_KEY}"
         try:
-            response = await client.post(url, json=payload, timeout=30.0)
+            response = await client.post(url, json=payload, timeout=20.0)
             if response.status_code == 200:
                 raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
                 return json.loads(raw_text)
-            else:
-                logger.error(f"API Error: {response.status_code} - {response.text}")
-                return {"error": "AI Engine Error", "score": 50, "insight": "System running in limited mode."}
+            logger.error(f"Gemini Error: {response.text}")
+            return {"error": "AI Processing Error", "score": 50, "insight": "System running on local heuristics."}
         except Exception as e:
-            logger.error(f"Request failed: {e}")
-            return {"error": "Connection Error", "score": 50, "insight": "Sync failed."}
+            logger.error(f"Gemini Request Failed: {e}")
+            return {"error": "Sync Failure", "score": 50, "insight": "Check connection to Railway."}
 
 @app.post("/api/execute")
 async def execute_action(action: LifeOSAction):
-    """The Executor: Triggers real-world APIs."""
-    action_type = action.action_type
-    target = action.target
-    
+    logger.info(f"Executing Intervention: {action.action_type}")
     result = "Unknown Action"
     
-    if action_type == "CALENDAR_SHIELD":
-        result = await handle_calendar_shield(target)
-    elif action_type == "FINANCE_SWEEP":
+    if action.action_type == "CALENDAR_SHIELD":
+        result = await handle_calendar_shield(action.target)
+    elif action.action_type == "FINANCE_SWEEP":
         result = await handle_finance_sweep(100)
     elif action_type == "COGNITIVE_RESET":
         result = "Notification suppressors active."
         
-    logger.info(f"Executed {action_type}: {result}")
     return {"status": "success", "execution_log": result}
 
 if __name__ == "__main__":
     import uvicorn
-    # VITAL: Railway provides the port via $PORT. Host must be 0.0.0.0.
+    # VITAL: Binding to 0.0.0.0 and using the PORT provided by Railway
+    port = int(os.environ.get("PORT", 8000))
+    logger.info(f"Application starting on port {port}...")
     try:
-        port = int(os.environ.get("PORT", 8000))
-        logger.info(f"LifeOS Core preparing to start on port {port}")
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
     except Exception as e:
-        logger.critical(f"Server failed to start: {e}")
+        logger.critical(f"FATAL STARTUP ERROR: {e}")
