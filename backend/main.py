@@ -4,6 +4,7 @@ import httpx
 import asyncio
 import stripe
 import logging
+import sys
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from fastapi import FastAPI, BackgroundTasks, Body, HTTPException
@@ -15,10 +16,14 @@ try:
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 except ImportError:
-    print("Warning: Google API libraries not found. Ensure requirements.txt is updated.")
+    print("CRITICAL: Google API libraries not found. Ensure requirements.txt includes google-api-python-client and google-auth-oauthlib")
 
 # Configure Logging for Railway Debugging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger("LifeOS")
 
 app = FastAPI(title="LifeOS Autonomous Core")
@@ -40,7 +45,11 @@ GOOGLE_TOKEN_JSON = os.environ.get("GOOGLE_TOKEN_JSON", "")
 
 # Initialize Stripe safely
 if STRIPE_API_KEY:
-    stripe.api_key = STRIPE_API_KEY
+    try:
+        stripe.api_key = STRIPE_API_KEY
+        logger.info("Stripe initialized successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize Stripe: {e}")
 else:
     logger.warning("STRIPE_API_KEY not found. Wealth optimization will be disabled.")
 
@@ -131,7 +140,8 @@ async def root():
         "status": "online",
         "message": "LifeOS Core is active.",
         "api_key_configured": bool(API_KEY),
-        "google_token_configured": bool(GOOGLE_TOKEN_JSON)
+        "google_token_configured": bool(GOOGLE_TOKEN_JSON),
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.post("/api/ingest")
@@ -147,6 +157,7 @@ async def ingest_life_data(payload: Dict[str, Any] = Body(...)):
 async def get_life_status():
     """AI analyses context and returns insights."""
     if not API_KEY:
+        logger.error("Attempted to fetch status without GEMINI_API_KEY.")
         return {"error": "GEMINI_API_KEY not found", "score": 50, "insight": "Intelligence Core Missing."}
 
     payload = {
@@ -188,7 +199,7 @@ async def get_life_status():
                 raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
                 return json.loads(raw_text)
             else:
-                logger.error(f"API Error: {response.text}")
+                logger.error(f"API Error: {response.status_code} - {response.text}")
                 return {"error": "AI Engine Error", "score": 50, "insight": "System running in limited mode."}
         except Exception as e:
             logger.error(f"Request failed: {e}")
@@ -215,6 +226,9 @@ async def execute_action(action: LifeOSAction):
 if __name__ == "__main__":
     import uvicorn
     # VITAL: Railway provides the port via $PORT. Host must be 0.0.0.0.
-    port = int(os.environ.get("PORT", 8000))
-    logger.info(f"LifeOS Core starting on port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    try:
+        port = int(os.environ.get("PORT", 8000))
+        logger.info(f"LifeOS Core preparing to start on port {port}")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    except Exception as e:
+        logger.critical(f"Server failed to start: {e}")
