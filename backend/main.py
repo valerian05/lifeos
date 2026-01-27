@@ -1,50 +1,111 @@
-import httpx
-import time
 import os
+import json
+import httpx
+import asyncio
+from datetime import datetime
+from typing import List, Dict, Any
+from fastapi import FastAPI, BackgroundTasks, Body
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-# 1. Your Railway URL
-URL = "https://lifeos-production-4154.up.railway.app/api/ingest"
+app = FastAPI(title="LifeOS Autonomous Core")
 
-def get_system_metrics():
-    """
-    Grabs a real metric from your computer to simulate a 'Focus' sensor.
-    High CPU usage usually correlates with high cognitive load/multitasking.
-    """
-    try:
-        # Simple cross-platform way to get a 'dynamic' number
-        # On Windows/Mac/Linux this returns a list of load averages
-        load = os.getloadavg()[0] if hasattr(os, 'getloadavg') else 0.5
-        focus_proxy = "Critical" if load > 2.0 else "Normal"
-        return focus_proxy, load
-    except:
-        return "Normal", 0.1
+# Enable CORS for Vercel/Local Frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def sync_to_lifeos():
-    focus_label, raw_load = get_system_metrics()
-    
-    # This data is now 'Live' based on your computer's state
-    my_data = {
-        "hrv": "38ms",
-        "sleep": "7h",
-        "focus_level": focus_label,
-        "system_load_proxy": f"{raw_load}%",
-        "bank_balance": "$4,000",
-        "timestamp": time.time()
+# Configuration
+GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
+API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+# In-memory store for the latest context (In production, use PostgreSQL/database.py)
+LATEST_CONTEXT = {
+    "hrv": "Pending sync...",
+    "sleep": "Pending sync...",
+    "focus_level": "Awaiting data",
+    "bank_balance": "Awaiting data"
+}
+
+class LifeOSAction(BaseModel):
+    action_type: str
+    target: str
+    description: str
+    priority: int
+
+# System Prompt for the Autonomous Agent
+SYSTEM_PROMPT = """
+You are LifeOS, an autonomous agentic operating system. 
+You do not chat; you optimize. 
+Analyze the user's current context and return a structured JSON response.
+Identify 1-3 'Pending Actions' that you will execute to benefit the user's Health, Wealth, or Focus.
+Action Types: 'CALENDAR_SHIELD', 'FINANCE_SWEEP', 'HEALTH_PREEMPT', 'COGNITIVE_RESET'.
+"""
+
+@app.post("/api/ingest")
+async def ingest_life_data(payload: Dict[str, Any] = Body(...)):
+    """Receives real data from your local sensor_feed.py."""
+    global LATEST_CONTEXT
+    LATEST_CONTEXT.update(payload)
+    LATEST_CONTEXT["last_sync"] = datetime.now().isoformat()
+    print(f"Sync Received: {list(payload.keys())}")
+    return {"status": "success", "received": payload}
+
+@app.get("/api/status")
+async def get_life_status():
+    """AI analyzes the LATEST_CONTEXT and returns insights."""
+    payload = {
+        "contents": [{"parts": [{"text": f"Context: {json.dumps(LATEST_CONTEXT)}"}]}],
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "score": {"type": "NUMBER"},
+                    "health_index": {"type": "NUMBER"},
+                    "wealth_index": {"type": "NUMBER"},
+                    "focus_index": {"type": "NUMBER"},
+                    "insight": {"type": "STRING"},
+                    "pending_actions": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "action_type": {"type": "STRING"},
+                                "target": {"type": "STRING"},
+                                "description": {"type": "STRING"},
+                                "priority": {"type": "NUMBER"}
+                            }
+                        }
+                    }
+                },
+                "required": ["score", "insight", "pending_actions"]
+            }
+        }
     }
-    
-    try:
-        print(f"Feeding data to LifeOS (Focus: {focus_label})...")
-        response = httpx.post(URL, json=my_data)
+
+    async with httpx.AsyncClient() as client:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={API_KEY}"
+        response = await client.post(url, json=payload, timeout=30.0)
+        
         if response.status_code == 200:
-            print("Success: Dashboard Updated.")
-        else:
-            print(f"Server Error: {response.status_code}")
-    except Exception as e:
-        print(f"Connection Error: {e}")
+            raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+            return json.loads(raw_text)
+        
+        return {"error": "AI Engine Offline", "score": 50, "insight": "System running in limited mode."}
+
+@app.post("/api/execute")
+async def execute_action(action: LifeOSAction):
+    # Simulated API execution (Stripe, Google Calendar, etc.)
+    print(f"Executing {action.action_type}: {action.description}")
+    # In a real setup, call handle_calendar_shield(target) here
+    return {"status": "success", "message": f"Action '{action.action_type}' completed."}
 
 if __name__ == "__main__":
-    print("LifeOS Sensor Active. Monitoring environment...")
-    # Sync every 30 seconds for immediate feedback during testing
-    while True:
-        sync_to_lifeos()
-        time.sleep(30)
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
