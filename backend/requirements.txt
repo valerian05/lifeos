@@ -1,5 +1,7 @@
 fastapi
 uvicorn
-openai
-sqlalchemy
+httpx
 pydantic
+stripe
+google-api-python-client
+google-auth-oauthlib
