@@ -45,6 +45,19 @@ Identify 1-3 'Pending Actions' that you will execute to benefit the user's Healt
 Action Types: 'CALENDAR_SHIELD', 'FINANCE_SWEEP', 'HEALTH_PREEMPT', 'COGNITIVE_RESET'.
 """
 
+@app.get("/")
+async def root():
+    """Root endpoint to confirm the system is live."""
+    return {
+        "status": "online",
+        "message": "LifeOS Autonomous Core is active.",
+        "endpoints": {
+            "status": "/api/status",
+            "ingest": "/api/ingest (POST)",
+            "execute": "/api/execute (POST)"
+        }
+    }
+
 @app.post("/api/ingest")
 async def ingest_life_data(payload: Dict[str, Any] = Body(...)):
     """Receives real data from your local sensor_feed.py."""
