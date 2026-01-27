@@ -39,12 +39,18 @@ app.add_middleware(
 
 # --- CONFIGURATION ---
 GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
-API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "").strip()
-GOOGLE_TOKEN_JSON = os.environ.get("GOOGLE_TOKEN_JSON", "").strip() 
-DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
-# Use the CORE_PROMPT from Railway if it exists, otherwise use fallback
+# Utility to clean keys (removes spaces, quotes, and newlines)
+def clean_env(key_name: str) -> str:
+    val = os.environ.get(key_name, "").strip().replace('"', '').replace("'", "")
+    return val
+
+API_KEY = clean_env("GEMINI_API_KEY")
+STRIPE_API_KEY = clean_env("STRIPE_API_KEY")
+GOOGLE_TOKEN_JSON = clean_env("GOOGLE_TOKEN_JSON") 
+DATABASE_URL = clean_env("DATABASE_URL")
+
+# Use the CORE_PROMPT from Railway if it exists
 DEFAULT_SYSTEM_PROMPT = """
 You are LifeOS, an autonomous agentic operating system. 
 You do not chat; you optimize. 
@@ -54,15 +60,25 @@ Action Types: 'CALENDAR_SHIELD', 'FINANCE_SWEEP', 'HEALTH_PREEMPT', 'COGNITIVE_R
 """
 SYSTEM_PROMPT = os.environ.get("CORE_PROMPT", DEFAULT_SYSTEM_PROMPT)
 
-# Initialize Stripe defensively
+# --- STARTUP DIAGNOSTICS ---
+@app.on_event("startup")
+async def startup_event():
+    logger.info("--- SYSTEM STARTUP DIAGNOSTICS ---")
+    if API_KEY:
+        if API_KEY.startswith("AIza"):
+            logger.info("GEMINI_API_KEY: [CONNECTED]")
+        else:
+            logger.error(f"GEMINI_API_KEY: [INVALID PREFIX: {API_KEY[:4]}...]")
+    else:
+        logger.error("GEMINI_API_KEY: [NOT FOUND IN ENVIRONMENT]")
+    
+    logger.info(f"STRIPE_API_KEY: {'[FOUND]' if STRIPE_API_KEY else '[MISSING]'}")
+    logger.info(f"GOOGLE_TOKEN_JSON: {'[FOUND]' if GOOGLE_TOKEN_JSON else '[MISSING]'}")
+    logger.info("----------------------------------")
+
+# Initialize Stripe
 if STRIPE_API_KEY:
-    try:
-        stripe.api_key = STRIPE_API_KEY
-        logger.info("Stripe SDK initialized.")
-    except Exception as e:
-        logger.error(f"Stripe initialization failed: {e}")
-else:
-    logger.warning("STRIPE_API_KEY not found.")
+    stripe.api_key = STRIPE_API_KEY
 
 # In-memory context
 LATEST_CONTEXT = {
@@ -87,7 +103,6 @@ async def handle_calendar_shield(target_event_id: str):
         creds_info = json.loads(GOOGLE_TOKEN_JSON)
         creds = Credentials.from_authorized_user_info(creds_info)
         service = build('calendar', 'v3', credentials=creds)
-        
         event = service.events().get(calendarId='primary', eventId=target_event_id).execute()
         
         start = event['start'].get('dateTime', event['start'].get('date'))
@@ -124,15 +139,13 @@ async def handle_finance_sweep(amount_dollars: int):
 
 @app.get("/")
 async def health_check():
-    """Detailed health check to debug Railway variables."""
     return {
         "status": "online",
         "system": "LifeOS Core",
         "config_status": {
-            "gemini_api": bool(API_KEY),
+            "gemini_api": bool(API_KEY and API_KEY.startswith("AIza")),
             "stripe_api": bool(STRIPE_API_KEY),
             "google_calendar": bool(GOOGLE_TOKEN_JSON),
-            "database": bool(DATABASE_URL),
             "custom_prompt_active": SYSTEM_PROMPT != DEFAULT_SYSTEM_PROMPT
         },
         "timestamp": datetime.now().isoformat()
@@ -142,13 +155,13 @@ async def health_check():
 async def ingest_life_data(payload: Dict[str, Any] = Body(...)):
     global LATEST_CONTEXT
     LATEST_CONTEXT.update(payload)
-    logger.info(f"Context Sync: {list(payload.keys())}")
+    logger.info(f"Ingested metrics: {list(payload.keys())}")
     return {"status": "success"}
 
 @app.get("/api/status")
 async def get_life_status():
     if not API_KEY:
-        return {"error": "GEMINI_API_KEY missing from environment.", "score": 50, "insight": "Intelligence Core offline."}
+        return {"error": "GEMINI_API_KEY missing", "score": 50, "insight": "Intelligence Core offline."}
 
     payload = {
         "contents": [{"parts": [{"text": f"Context: {json.dumps(LATEST_CONTEXT)}"}]}],
@@ -163,31 +176,24 @@ async def get_life_status():
             if response.status_code == 200:
                 raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
                 return json.loads(raw_text)
-            logger.error(f"Gemini Error: {response.text}")
             return {"error": "AI Processing Error", "score": 50, "insight": "System running on local heuristics."}
         except Exception as e:
             logger.error(f"Gemini Request Failed: {e}")
-            return {"error": "Sync Failure", "score": 50, "insight": "Check connection to Railway."}
+            return {"error": "Sync Failure", "score": 50, "insight": "Check connection."}
 
 @app.post("/api/execute")
 async def execute_action(action: LifeOSAction):
-    logger.info(f"Executing Intervention: {action.action_type}")
+    logger.info(f"Executing: {action.action_type}")
     result = "Unknown Action"
     
     if action.action_type == "CALENDAR_SHIELD":
         result = await handle_calendar_shield(action.target)
     elif action.action_type == "FINANCE_SWEEP":
         result = await handle_finance_sweep(100)
-    elif action.action_type == "COGNITIVE_RESET":
-        result = "Notification suppressors active."
         
     return {"status": "success", "execution_log": result}
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    logger.info(f"Application attempting to bind to 0.0.0.0:{port}...")
-    try:
-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info", access_log=True)
-    except Exception as e:
-        logger.critical(f"FATAL STARTUP ERROR: {e}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
