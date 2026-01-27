@@ -74,17 +74,27 @@ async def handle_calendar_shield(target_event_id: str):
         
         # Calculate new times (pushed 24 hours ahead)
         # Handle both dateTime (standard) and date (all-day) events
-        start_str = event['start'].get('dateTime', event['start'].get('date'))
-        end_str = event['end'].get('dateTime', event['end'].get('date'))
+        start_data = event['start']
+        end_data = event['end']
         
+        start_str = start_data.get('dateTime', start_data.get('date'))
+        end_str = end_data.get('dateTime', end_data.get('date'))
+        
+        # Parse and shift
         curr_start = datetime.fromisoformat(start_str.replace('Z', ''))
         curr_end = datetime.fromisoformat(end_str.replace('Z', ''))
         
         new_start = (curr_start + timedelta(days=1)).isoformat() + 'Z'
         new_end = (curr_end + timedelta(days=1)).isoformat() + 'Z'
         
-        event['start']['dateTime'] = new_start
-        event['end']['dateTime'] = new_end
+        # Update event body
+        if 'dateTime' in start_data:
+            event['start']['dateTime'] = new_start
+            event['end']['dateTime'] = new_end
+        else:
+            # For all-day events
+            event['start']['date'] = new_start.split('T')[0]
+            event['end']['date'] = new_end.split('T')[0]
         
         updated_event = service.events().update(calendarId='primary', eventId=target_event_id, body=event).execute()
         return f"Rescheduled: {updated_event.get('summary')} to {new_start}"
@@ -97,7 +107,7 @@ async def handle_finance_sweep(amount_dollars: int):
         return "Error: STRIPE_API_KEY not set in environment."
     
     try:
-        # Transfer funds (simulated destination 'default_for_savings')
+        # Transfer funds (Note: 'default_for_savings' is a placeholder destination)
         transfer = stripe.Transfer.create(
             amount=int(amount_dollars * 100), # Stripe uses cents
             currency="usd",
@@ -197,5 +207,6 @@ async def execute_action(action: LifeOSAction):
 
 if __name__ == "__main__":
     import uvicorn
+    # Railway provides the port via the PORT environment variable
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
