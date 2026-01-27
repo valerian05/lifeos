@@ -1,55 +1,14 @@
 import os
 import json
-import asyncio
-from typing import List
-from fastapi import FastAPI
+import httpx
+from typing import List, Dict, Any
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from openai import OpenAI
-from sqlalchemy import create_engine, Column, Integer, String, Text
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
-# -----------------------------
-# DATABASE SETUP
-# -----------------------------
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/lifeos.db")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine)
-Base = declarative_base()
+app = FastAPI(title="LifeOS Autonomous Core")
 
-class Memory(Base):
-    __tablename__ = "memory"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(String, default="demo")
-    command = Column(Text)
-    ai_json = Column(Text)
-    action_result = Column(Text)
-
-Base.metadata.create_all(bind=engine)
-
-# -----------------------------
-# CORE PROMPT
-# -----------------------------
-CORE_PROMPT = os.getenv(
-    "CORE_PROMPT",
-    """
-You are LifeOS, an autonomous AI operating system.
-Respond ONLY in valid JSON.
-
-Schema:
-{
-  "intent": "string",
-  "actions": [
-    { "type": "ADD_TASK | COMPLETE_TASK | ADD_PROJECT | NO_ACTION", "value": "string" }
-  ]
-}
-"""
-)
-
-# -----------------------------
-# APP
-# -----------------------------
-app = FastAPI()
+# Enable CORS for Next.js (Vercel)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -57,190 +16,89 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -----------------------------
-# MODELS
-# -----------------------------
-class Intent(BaseModel):
-    command: str
+# Configuration
+GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
+API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-class Task(BaseModel):
-    id: int
-    title: str
-    done: bool
+# Load System Prompt from core_prompt.txt
+def get_system_prompt():
+    try:
+        # Assuming core_prompt.txt is in the same directory as main.py
+        prompt_path = os.path.join(os.path.dirname(__file__), "core_prompt.txt")
+        with open(prompt_path, "r") as f:
+            return f.read()
+    except Exception as e:
+        print(f"Error loading core_prompt.txt: {e}")
+        return "You are LifeOS, an autonomous operating system. Optimize the user's life."
 
-class Project(BaseModel):
-    id: int
-    name: str
-    status: str
+class LifeOSAction(BaseModel):
+    action_type: str
+    target: str
+    description: str
+    priority: int
 
-# -----------------------------
-# STATE
-# -----------------------------
-tasks: List[dict] = []
-projects: List[dict] = []
-pending_commands: List[str] = []
-
-# -----------------------------
-# OPENAI LAZY LOADING
-# -----------------------------
-def get_openai_client():
-    key = os.getenv("OPENAI_API_KEY", "")
-    if not key:
-        return None
-    return OpenAI(api_key=key)
-
-def is_openai_configured():
-    return bool(os.getenv("OPENAI_API_KEY", ""))
-
-# -----------------------------
-# ACTION EXECUTOR
-# -----------------------------
-def execute_action(action: dict) -> str:
-    t = action.get("type")
-    v = (action.get("value") or "").strip()
-
-    if t == "ADD_TASK" and v:
-        tasks.append({"id": len(tasks) + 1, "title": v, "done": False})
-        return f"Task added: {v}"
-
-    if t == "COMPLETE_TASK" and v:
-        for task in tasks:
-            if task["title"].lower() == v.lower():
-                task["done"] = True
-                return f"Task completed: {v}"
-        return f"Task not found: {v}"
-
-    if t == "ADD_PROJECT" and v:
-        projects.append({"id": len(projects) + 1, "name": v, "status": "Planning"})
-        return f"Project added: {v}"
-
-    return "No action"
-
-# -----------------------------
-# BACKGROUND QUEUE PROCESSING
-# -----------------------------
-async def process_pending_loop():
-    """Background loop to auto-process queued commands"""
-    while True:
-        if pending_commands and is_openai_configured():
-            client = get_openai_client()
-            db: Session = SessionLocal()
-            try:
-                while pending_commands:
-                    command = pending_commands.pop(0)
-                    try:
-                        response = client.chat.completions.create(
-                            model="gpt-4o-mini",
-                            temperature=0.2,
-                            messages=[
-                                {"role": "system", "content": CORE_PROMPT},
-                                {"role": "user", "content": command}
-                            ],
-                        )
-                        raw = response.choices[0].message.content
-                        ai_data = json.loads(raw)
-
-                        results = []
-                        for action in ai_data.get("actions", []):
-                            results.append(execute_action(action))
-
-                        db.add(
-                            Memory(
-                                command=command,
-                                ai_json=json.dumps(ai_data),
-                                action_result=" | ".join(results)
-                            )
-                        )
-                        db.commit()
-                        print(f"[LifeOS] Auto-processed command: {command}")
-                    except Exception as e:
-                        print(f"[LifeOS] Error processing command: {command} | {e}")
-                        pending_commands.insert(0, command)  # Retry later
-                        break
-            finally:
-                db.close()
-        await asyncio.sleep(5)  # Check every 5 seconds
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(process_pending_loop())
-
-# -----------------------------
-# ROUTES
-# -----------------------------
-@app.get("/")
-def root():
-    return {"status": "LifeOS backend running"}
-
-@app.get("/health")
-def health():
-    return {
-        "ok": True,
-        "openai_configured": is_openai_configured(),
-        "pending_commands": len(pending_commands)
+@app.get("/api/status")
+async def get_life_status():
+    # Simulated User Context
+    user_context = {
+        "hrv": "Low (Stress Detected)",
+        "sleep": "5.2 hours",
+        "cash_idle": "$4,200",
+        "calendar_density": "High (6 back-to-back meetings)",
+        "focus_score": "22%"
     }
 
-@app.get("/tasks", response_model=List[Task])
-def get_tasks():
-    return tasks
+    system_instruction = get_system_prompt()
 
-@app.get("/projects", response_model=List[Project])
-def get_projects():
-    return projects
-
-@app.post("/execute")
-def execute_intent(intent: Intent):
-    client = get_openai_client()
-    if not client:
-        pending_commands.append(intent.command)
-        return {
-            "status": "queued",
-            "message": "OpenAI not configured. Command added to pending queue."
+    payload = {
+        "contents": [{"parts": [{"text": f"Context: {json.dumps(user_context)}"}]}],
+        "systemInstruction": {"parts": [{"text": system_instruction}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "score": {"type": "NUMBER"},
+                    "health_index": {"type": "NUMBER"},
+                    "wealth_index": {"type": "NUMBER"},
+                    "focus_index": {"type": "NUMBER"},
+                    "insight": {"type": "STRING"},
+                    "pending_actions": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "action_type": {"type": "STRING"},
+                                "target": {"type": "STRING"},
+                                "description": {"type": "STRING"},
+                                "priority": {"type": "NUMBER"}
+                            }
+                        }
+                    }
+                },
+                "required": ["score", "insight", "pending_actions"]
+            }
         }
+    }
 
-    db: Session = SessionLocal()
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.2,
-            messages=[
-                {"role": "system", "content": CORE_PROMPT},
-                {"role": "user", "content": intent.command}
-            ],
-        )
+    async with httpx.AsyncClient() as client:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={API_KEY}"
+        response = await client.post(url, json=payload, timeout=30.0)
+        
+        if response.status_code == 200:
+            raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+            return json.loads(raw_text)
+        
+        return {"error": "AI Engine Offline", "score": 50, "insight": "System running in limited mode."}
 
-        raw = response.choices[0].message.content
-        ai_data = json.loads(raw)
+@app.post("/api/execute")
+async def execute_action(action: LifeOSAction):
+    # Log the autonomous execution
+    print(f"Executing {action.action_type}: {action.description}")
+    return {"status": "success", "message": f"Action '{action.action_type}' completed."}
 
-        results = []
-        for action in ai_data.get("actions", []):
-            results.append(execute_action(action))
-
-        db.add(
-            Memory(
-                command=intent.command,
-                ai_json=json.dumps(ai_data),
-                action_result=" | ".join(results)
-            )
-        )
-        db.commit()
-
-        return {
-            "intent": ai_data.get("intent"),
-            "actions": ai_data.get("actions"),
-            "result": results
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
-
-    finally:
-        db.close()
-
-# -----------------------------
-# DEBUG ROUTE (TEMPORARY)
-# -----------------------------
-@app.get("/debug-env")
-def debug_env():
-    # Shows exactly what the container sees for OPENAI_API_KEY
-    return {"OPENAI_API_KEY_value": os.getenv("OPENAI_API_KEY")}
+if __name__ == "__main__":
+    import uvicorn
+    # Railway sets the PORT environment variable automatically
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
