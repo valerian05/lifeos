@@ -15,7 +15,7 @@ import {
 
 /**
  * LifeOS Dashboard - Production Version
- * Optimized for Vercel/Next.js and browser preview environments.
+ * Fixed compilation errors related to environment meta-properties.
  */
 export default function App() {
   const [mounted, setMounted] = useState(false);
@@ -25,17 +25,20 @@ export default function App() {
   const [connectionError, setConnectionError] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
-  // Safe check for process.env to prevent ReferenceError in browser environments
+  // Standard Next.js environment variable handling
   const getApiBase = () => {
-    let url = "https://lifeos-production-4154.up.railway.app";
+    const defaultUrl = "https://lifeos-production-4154.up.railway.app";
+    
+    // Defensive check for process.env
     try {
-      if (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL) {
-        url = process.env.NEXT_PUBLIC_API_URL;
+      if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
+        return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
       }
     } catch (e) {
-      // process is not defined
+      // Ignore if process is not defined
     }
-    return url.replace(/\/$/, "");
+
+    return defaultUrl;
   };
 
   const API_BASE = getApiBase();
@@ -75,7 +78,7 @@ export default function App() {
     }
   }, [API_BASE]);
 
-  // Fix for Next.js Hydration Mismatch
+  // Fix for Next.js Hydration Mismatch & Build Stability
   useEffect(() => {
     setMounted(true);
     fetchStatus();
@@ -102,7 +105,6 @@ export default function App() {
     }
   };
 
-  // Prevent server-side rendering errors by returning null until mounted
   if (!mounted) return null;
   if (loading) return <LoadingScreen />;
 
@@ -133,7 +135,7 @@ export default function App() {
             <div className={`w-2 h-2 rounded-full ${connectionError ? 'bg-amber-500' : 'bg-indigo-500 animate-pulse'}`}></div>
             <span className="text-[10px] font-black uppercase tracking-[0.5em] text-neutral-500 italic">Neural Link v1.0</span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-light italic tracking-tight italic">Life<span className="font-black text-indigo-500 uppercase not-italic">OS</span></h1>
+          <h1 className="text-4xl md:text-5xl font-light italic tracking-tight">Life<span className="font-black text-indigo-500 uppercase not-italic">OS</span></h1>
         </div>
         <div className="text-right hidden sm:block">
           <div className="text-[10px] font-black uppercase text-neutral-600 tracking-widest mb-1">State</div>
@@ -146,7 +148,6 @@ export default function App() {
       <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 px-2">
         <div className="lg:col-span-8 space-y-8">
           
-          {/* Central Intelligence Score */}
           <div className="bg-neutral-900 border border-white/5 rounded-[2.5rem] md:rounded-[3rem] p-10 md:p-14 relative overflow-hidden group hover:border-white/10 transition-all duration-500">
             <div className="absolute -right-20 -top-20 opacity-[0.02] group-hover:opacity-[0.06] transition-opacity duration-1000 pointer-events-none">
               <BrainCircuit size={450} className="text-indigo-500" />
@@ -162,7 +163,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Intervention Matrix */}
           <div className="space-y-4">
             <div className="flex items-center justify-between px-4">
               <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-500">Pending Interventions</h3>
@@ -194,7 +194,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Intelligence Sidebar */}
         <div className="lg:col-span-4 space-y-4">
           <MetricTile label="Biological" value={data?.health_index} color="text-emerald-400" Icon={Activity} />
           <MetricTile label="Capital" value={data?.wealth_index} color="text-blue-400" Icon={Wallet} />
