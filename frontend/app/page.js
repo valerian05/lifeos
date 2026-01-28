@@ -17,7 +17,11 @@ import {
 
 /**
  * LifeOS Dashboard - App Router Version (app/page.js)
- * Fully optimized for Vercel deployment and Next.js hydration.
+ * Hardened for Vercel Build Stability.
+ * * IMPORTANT: To fix the "Build Failed" error:
+ * 1. You MUST delete the 'frontend/pages' folder completely. 
+ * Next.js will fail if both 'app/page.js' and 'pages/index.js' exist.
+ * 2. Ensure 'lucide-react' is in your frontend/package.json.
  */
 export default function Page() {
   const [mounted, setMounted] = useState(false);
@@ -27,22 +31,21 @@ export default function Page() {
   const [connectionError, setConnectionError] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
-  // Standard Next.js environment variable handling
-  const getApiBase = () => {
-    // Default to the known Railway URL
+  // Build-safe environment variable retrieval
+  const getApiBase = useCallback(() => {
     const defaultUrl = "https://lifeos-production-4154.up.railway.app";
     
-    // In Next.js client components, NEXT_PUBLIC_ variables are available on process.env
     try {
-      if (process.env.NEXT_PUBLIC_API_URL) {
+      // Use typeof check to prevent ReferenceError during strict build minification
+      if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
       }
     } catch (e) {
-      // process.env might not be defined in some build environments
+      // Fallback to default if process is inaccessible
     }
 
     return defaultUrl;
-  };
+  }, []);
 
   const API_BASE = getApiBase();
 
@@ -51,7 +54,7 @@ export default function Page() {
     
     try {
       const res = await fetch(`${API_BASE}/api/status`, {
-        cache: 'no-store', // Disable caching for real-time life data
+        cache: 'no-store', // Ensures real-time data in Next.js App Router
         headers: { 'Accept': 'application/json' },
       });
       
@@ -64,13 +67,13 @@ export default function Page() {
       console.error("[LifeOS Sync Error]:", e.message);
       setConnectionError(true);
       
-      // Provide fallback data so the UI doesn't crash if the backend is down
+      // Fallback data prevents the UI from crashing during build or downtime
       setData(prev => prev || {
         score: 85,
         health_index: 90,
         wealth_index: 95,
         focus_index: 40,
-        insight: "INTELLIGENCE_LINK_OFFLINE: Re-establishing neural link. Verify Railway service and CORS configuration.",
+        insight: "INTELLIGENCE_LINK_OFFLINE: Re-establishing neural link. Verify Railway service status.",
         pending_actions: [
           { action_type: 'COGNITIVE_SHIELD', target: 'System', description: 'Protecting neural state from sync failure', priority: 10 }
         ]
@@ -81,7 +84,7 @@ export default function Page() {
     }
   }, [API_BASE]);
 
-  // Ensure component is mounted before rendering to avoid hydration mismatch
+  // Standard Hydration Shield
   useEffect(() => {
     setMounted(true);
     fetchStatus();
@@ -100,8 +103,6 @@ export default function Page() {
       });
       
       if (!response.ok) throw new Error("Execution failed");
-      
-      // Refresh data after successful execution
       await fetchStatus();
     } catch (e) {
       console.error("[Action Execution Error]:", e.message);
@@ -116,7 +117,7 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-12 font-sans selection:bg-indigo-500/30 overflow-x-hidden">
       
-      {/* Dynamic Connectivity Banner */}
+      {/* Connectivity Banner */}
       {connectionError && (
         <div className="fixed top-0 left-0 w-full bg-amber-500 text-black py-2 px-6 z-50 flex justify-between items-center text-[9px] font-black uppercase tracking-[0.2em] shadow-2xl backdrop-blur-md">
           <div className="flex items-center gap-2">
@@ -126,7 +127,7 @@ export default function Page() {
           <button 
             onClick={() => fetchStatus(true)}
             disabled={retrying}
-            className="bg-black text-white px-3 py-1 rounded hover:bg-neutral-800 transition-all flex items-center gap-2 shadow-lg"
+            className="bg-black text-white px-3 py-1 rounded hover:bg-neutral-800 transition-all flex items-center gap-2"
           >
             {retrying ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
             {retrying ? 'Syncing...' : 'Reconnect'}
@@ -153,7 +154,7 @@ export default function Page() {
       <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 px-2">
         <div className="lg:col-span-8 space-y-8">
           
-          {/* Central Intelligence Score */}
+          {/* Intelligence Score Card */}
           <div className="bg-neutral-900 border border-white/5 rounded-[2.5rem] md:rounded-[3rem] p-10 md:p-14 relative overflow-hidden group hover:border-white/10 transition-all duration-500">
             <div className="absolute -right-20 -top-20 opacity-[0.02] group-hover:opacity-[0.06] transition-opacity duration-1000 pointer-events-none">
               <BrainCircuit size={450} className="text-indigo-500" />
@@ -201,7 +202,7 @@ export default function Page() {
           </div>
         </div>
 
-        {/* Intelligence Sidebar */}
+        {/* Sidebar Metrics */}
         <div className="lg:col-span-4 space-y-4">
           <MetricTile label="Biological" value={data?.health_index} color="text-emerald-400" Icon={Activity} />
           <MetricTile label="Capital" value={data?.wealth_index} color="text-blue-400" Icon={Wallet} />
