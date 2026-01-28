@@ -15,9 +15,11 @@ import {
 
 /**
  * LifeOS Dashboard - Production Version
- * Fixed compilation errors related to environment meta-properties.
+ * * SETUP REQUIREMENTS:
+ * 1. Run: npm install lucide-react
+ * 2. Set NEXT_PUBLIC_API_URL in Vercel Settings
  */
-export default function App() {
+export default function Dashboard() {
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,17 +27,17 @@ export default function App() {
   const [connectionError, setConnectionError] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
-  // Standard Next.js environment variable handling
+  // Standard Next.js environment variable handling with fail-safes
   const getApiBase = () => {
     const defaultUrl = "https://lifeos-production-4154.up.railway.app";
     
-    // Defensive check for process.env
     try {
+      // Check for Next.js environment variables (prefixed with NEXT_PUBLIC_)
       if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
       }
     } catch (e) {
-      // Ignore if process is not defined
+      // Ignore process errors in browser context
     }
 
     return defaultUrl;
@@ -52,7 +54,7 @@ export default function App() {
         headers: { 'Accept': 'application/json' },
       });
       
-      if (!res.ok) throw new Error(`Server Response: ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP_${res.status}`);
       
       const json = await res.json();
       setData(json);
@@ -61,13 +63,13 @@ export default function App() {
       console.error("[LifeOS Sync Error]:", e.message);
       setConnectionError(true);
       
-      // Fallback Data for UI Integrity if no data exists
+      // Fallback Data for UI Integrity during build or offline state
       setData(prev => prev || {
         score: 85,
         health_index: 90,
         wealth_index: 95,
         focus_index: 40,
-        insight: "INTELLIGENCE_LINK_OFFLINE: Running on local simulation heuristics. Verify Railway service status and CORS headers.",
+        insight: "INTELLIGENCE_LINK_OFFLINE: Re-establishing neural link. Verify Railway service and CORS configuration.",
         pending_actions: [
           { action_type: 'COGNITIVE_SHIELD', target: 'System', description: 'Protecting neural state from sync failure', priority: 10 }
         ]
@@ -105,6 +107,7 @@ export default function App() {
     }
   };
 
+  // Critical for Vercel/Next.js: Prevent hydration error
   if (!mounted) return null;
   if (loading) return <LoadingScreen />;
 
@@ -135,7 +138,7 @@ export default function App() {
             <div className={`w-2 h-2 rounded-full ${connectionError ? 'bg-amber-500' : 'bg-indigo-500 animate-pulse'}`}></div>
             <span className="text-[10px] font-black uppercase tracking-[0.5em] text-neutral-500 italic">Neural Link v1.0</span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-light italic tracking-tight">Life<span className="font-black text-indigo-500 uppercase not-italic">OS</span></h1>
+          <h1 className="text-4xl md:text-5xl font-light italic tracking-tight italic">Life<span className="font-black text-indigo-500 uppercase not-italic">OS</span></h1>
         </div>
         <div className="text-right hidden sm:block">
           <div className="text-[10px] font-black uppercase text-neutral-600 tracking-widest mb-1">State</div>
@@ -148,6 +151,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 px-2">
         <div className="lg:col-span-8 space-y-8">
           
+          {/* Central Intelligence Score */}
           <div className="bg-neutral-900 border border-white/5 rounded-[2.5rem] md:rounded-[3rem] p-10 md:p-14 relative overflow-hidden group hover:border-white/10 transition-all duration-500">
             <div className="absolute -right-20 -top-20 opacity-[0.02] group-hover:opacity-[0.06] transition-opacity duration-1000 pointer-events-none">
               <BrainCircuit size={450} className="text-indigo-500" />
@@ -163,6 +167,7 @@ export default function App() {
             </div>
           </div>
 
+          {/* Intervention Matrix */}
           <div className="space-y-4">
             <div className="flex items-center justify-between px-4">
               <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-500">Pending Interventions</h3>
@@ -194,6 +199,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* Intelligence Sidebar */}
         <div className="lg:col-span-4 space-y-4">
           <MetricTile label="Biological" value={data?.health_index} color="text-emerald-400" Icon={Activity} />
           <MetricTile label="Capital" value={data?.wealth_index} color="text-blue-400" Icon={Wallet} />
