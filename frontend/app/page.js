@@ -17,7 +17,7 @@ import {
 
 /**
  * LifeOS Dashboard - App Router Version (app/page.js)
- * Build-safe, Hydration-safe, and optimized for Vercel.
+ * Fully optimized for Vercel deployment and Next.js hydration.
  */
 export default function Page() {
   const [mounted, setMounted] = useState(false);
@@ -27,16 +27,20 @@ export default function Page() {
   const [connectionError, setConnectionError] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
-  // Robust environment variable check for Railway Backend
+  // Standard Next.js environment variable handling
   const getApiBase = () => {
+    // Default to the known Railway URL
     const defaultUrl = "https://lifeos-production-4154.up.railway.app";
+    
+    // In Next.js client components, NEXT_PUBLIC_ variables are available on process.env
     try {
-      if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
+      if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
       }
     } catch (e) {
-      // process.env might not be available at build time
+      // process.env might not be defined in some build environments
     }
+
     return defaultUrl;
   };
 
@@ -47,7 +51,8 @@ export default function Page() {
     
     try {
       const res = await fetch(`${API_BASE}/api/status`, {
-        cache: 'no-store' // Critical for real-time status in App Router
+        cache: 'no-store', // Disable caching for real-time life data
+        headers: { 'Accept': 'application/json' },
       });
       
       if (!res.ok) throw new Error(`HTTP_${res.status}`);
@@ -59,7 +64,7 @@ export default function Page() {
       console.error("[LifeOS Sync Error]:", e.message);
       setConnectionError(true);
       
-      // Fallback Data for UI Integrity
+      // Provide fallback data so the UI doesn't crash if the backend is down
       setData(prev => prev || {
         score: 85,
         health_index: 90,
@@ -76,7 +81,7 @@ export default function Page() {
     }
   }, [API_BASE]);
 
-  // Handle Hydration Mismatch
+  // Ensure component is mounted before rendering to avoid hydration mismatch
   useEffect(() => {
     setMounted(true);
     fetchStatus();
@@ -95,6 +100,8 @@ export default function Page() {
       });
       
       if (!response.ok) throw new Error("Execution failed");
+      
+      // Refresh data after successful execution
       await fetchStatus();
     } catch (e) {
       console.error("[Action Execution Error]:", e.message);
@@ -109,6 +116,7 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-12 font-sans selection:bg-indigo-500/30 overflow-x-hidden">
       
+      {/* Dynamic Connectivity Banner */}
       {connectionError && (
         <div className="fixed top-0 left-0 w-full bg-amber-500 text-black py-2 px-6 z-50 flex justify-between items-center text-[9px] font-black uppercase tracking-[0.2em] shadow-2xl backdrop-blur-md">
           <div className="flex items-center gap-2">
@@ -118,7 +126,7 @@ export default function Page() {
           <button 
             onClick={() => fetchStatus(true)}
             disabled={retrying}
-            className="bg-black text-white px-3 py-1 rounded hover:bg-neutral-800 transition-all flex items-center gap-2"
+            className="bg-black text-white px-3 py-1 rounded hover:bg-neutral-800 transition-all flex items-center gap-2 shadow-lg"
           >
             {retrying ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
             {retrying ? 'Syncing...' : 'Reconnect'}
@@ -145,6 +153,7 @@ export default function Page() {
       <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 px-2">
         <div className="lg:col-span-8 space-y-8">
           
+          {/* Central Intelligence Score */}
           <div className="bg-neutral-900 border border-white/5 rounded-[2.5rem] md:rounded-[3rem] p-10 md:p-14 relative overflow-hidden group hover:border-white/10 transition-all duration-500">
             <div className="absolute -right-20 -top-20 opacity-[0.02] group-hover:opacity-[0.06] transition-opacity duration-1000 pointer-events-none">
               <BrainCircuit size={450} className="text-indigo-500" />
@@ -160,6 +169,7 @@ export default function Page() {
             </div>
           </div>
 
+          {/* Intervention Matrix */}
           <div className="space-y-4">
             <div className="flex items-center justify-between px-4">
               <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-500">Pending Interventions</h3>
@@ -191,6 +201,7 @@ export default function Page() {
           </div>
         </div>
 
+        {/* Intelligence Sidebar */}
         <div className="lg:col-span-4 space-y-4">
           <MetricTile label="Biological" value={data?.health_index} color="text-emerald-400" Icon={Activity} />
           <MetricTile label="Capital" value={data?.wealth_index} color="text-blue-400" Icon={Wallet} />
